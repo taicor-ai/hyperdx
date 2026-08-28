@@ -1,8 +1,5 @@
 name: Release Nightly
 on:
-  schedule:
-    # Run at 0:00 AM UTC every day
-    - cron: '0 0 * * *'
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -1,6 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
+import { requestHostDecision } from '@/server/requestHostPolicy';
+
 const DEFAULT_SERVER_URL = `http://127.0.0.1:${process.env.HYPERDX_API_PORT}`;
 
 export const config = {
@@ -17,6 +19,22 @@ export const config = {
 const isInlineApi = process.env.HDX_PREVIEW_INLINE_API === 'true';
 
 export default async (req: NextApiRequest, res: NextApiResponse) => {
+  if (process.env.HDX_REQUEST_HOST_POLICY_ENABLED === 'true') {
+    const decision = requestHostDecision({
+      host: req.headers.host,
+      method: req.method,
+      url: req.url,
+      publicHost: process.env.HDX_PUBLIC_HOST ?? '',
+      privateHosts: (process.env.HDX_TRUSTED_PRIVATE_HOSTS ?? '')
+        .split(',')
+        .map(host => host.trim())
+        .filter(Boolean),
+    });
+    if (!decision.allowed) {
+      res.status(421).send('Misdirected request');
+      return;
+    }
+  }
   if (isInlineApi) {
     // Lazy require so non-preview production builds
     const inlineApi = await import(

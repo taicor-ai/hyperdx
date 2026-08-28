@@ -4468,6 +4468,7 @@ __metadata:
     ms: "npm:^2.1.3"
     nodemon: "npm:^2.0.20"
     on-headers: "npm:^1.1.0"
+    openid-client: "npm:^6.8.7"
     passport: "npm:^0.6.0"
     passport-local: "npm:^1.0.0"
     pino: "npm:^10.0.0"
@@ -19697,6 +19698,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"jose@npm:^6.2.8":
+  version: 6.2.9
+  resolution: "jose@npm:6.2.9"
+  checksum: 10c0/fc6d79b11fdd5cc1393bccd644533b3e2445fd8eb2468066eb23c01ed7f6b41deca710e8aabe9379a382cca7920740900c7f610bdf0be4ff5e7ee44412730d4c
+  languageName: node
+  linkType: hard
+
 "jotai@npm:^2.5.1":
   version: 2.5.1
   resolution: "jotai@npm:2.5.1"
@@ -22203,6 +22211,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"oauth4webapi@npm:^3.8.7":
+  version: 3.8.7
+  resolution: "oauth4webapi@npm:3.8.7"
+  checksum: 10c0/7e581e24572a12c3b2abd4889d8f5271a7de0166a0971b8398468abe3baf9134012d312775f05b1a64b38b4413563bfb203801ba00909f831557823875b0699e
+  languageName: node
+  linkType: hard
+
 "object-assign@npm:^4, object-assign@npm:^4.0.1, object-assign@npm:^4.1.1":
   version: 4.1.1
   resolution: "object-assign@npm:4.1.1"
@@ -22386,6 +22401,16 @@ __metadata:
     is-docker: "npm:^2.1.1"
     is-wsl: "npm:^2.2.0"
   checksum: 10c0/bb6b3a58401dacdb0aad14360626faf3fb7fba4b77816b373495988b724fb48941cad80c1b65d62bb31a17609b2cd91c41a181602caea597ca80dfbcc27e84c9
+  languageName: node
+  linkType: hard
+
+"openid-client@npm:^6.8.7":
+  version: 6.8.7
+  resolution: "openid-client@npm:6.8.7"
+  dependencies:
+    jose: "npm:^6.2.8"
+    oauth4webapi: "npm:^3.8.7"
+  checksum: 10c0/309a7924e034193d36634b7e2cfbb003c5018bfb800d9c1d6c5d3cb986682e9aef594038eb7a87153d36a96d1a9dba921491cb9145930116340a7af7e73928ee
   languageName: node
   linkType: hard
 

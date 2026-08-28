@@ -47,6 +47,90 @@ export const WEBHOOK_HOSTNAME_ALLOWLIST = env.WEBHOOK_HOSTNAME_ALLOWLIST ?? '';
 export const RUN_SCHEDULED_TASKS_EXTERNALLY =
   env.RUN_SCHEDULED_TASKS_EXTERNALLY === 'true';
 
+export const PASSWORD_AUTH_ENABLED = env.HDX_PASSWORD_AUTH_ENABLED !== 'false';
+export const OIDC_ENABLED = env.HDX_OIDC_ENABLED === 'true';
+export const OIDC_ISSUER_URL = env.HDX_OIDC_ISSUER_URL ?? '';
+export const OIDC_CLIENT_ID = env.HDX_OIDC_CLIENT_ID ?? '';
+export const OIDC_CLIENT_SECRET = env.HDX_OIDC_CLIENT_SECRET ?? '';
+export const OIDC_REDIRECT_URI = env.HDX_OIDC_REDIRECT_URI ?? '';
+export const OIDC_SESSION_MAX_AGE_SECONDS = Number.parseInt(
+  env.HDX_OIDC_SESSION_MAX_AGE_SECONDS ?? '3600',
+);
+export const OIDC_TRANSACTION_TTL_SECONDS = Number.parseInt(
+  env.HDX_OIDC_TRANSACTION_TTL_SECONDS ?? '600',
+);
+export const PUBLIC_HOST = env.HDX_PUBLIC_HOST ?? '';
+export const TRUSTED_PRIVATE_HOSTS = (env.HDX_TRUSTED_PRIVATE_HOSTS ?? '')
+  .split(',')
+  .map(host => host.trim().toLowerCase())
+  .filter(Boolean);
+export const INTERNAL_BOOTSTRAP_ENABLED =
+  env.HDX_INTERNAL_BOOTSTRAP_ENABLED === 'true';
+export const INTERNAL_BOOTSTRAP_TOKEN_FILE =
+  env.HDX_INTERNAL_BOOTSTRAP_TOKEN_FILE ?? '';
+export const INTERNAL_BOOTSTRAP_EMAIL =
+  env.HDX_INTERNAL_BOOTSTRAP_EMAIL ?? 'bootstrap@taicor.invalid';
+export const INTERNAL_BOOTSTRAP_TEAM =
+  env.HDX_INTERNAL_BOOTSTRAP_TEAM ?? 'Taicor';
+export const SESSION_COOKIE_NAME =
+  NODE_ENV === 'development' && env.HDX_DEV_SLOT
+    ? `connect.sid.${env.HDX_DEV_SLOT}`
+    : 'connect.sid';
+
+if (OIDC_ENABLED) {
+  const missing = [
+    ['HDX_OIDC_ISSUER_URL', OIDC_ISSUER_URL],
+    ['HDX_OIDC_CLIENT_ID', OIDC_CLIENT_ID],
+    ['HDX_OIDC_CLIENT_SECRET', OIDC_CLIENT_SECRET],
+    ['HDX_OIDC_REDIRECT_URI', OIDC_REDIRECT_URI],
+    ['HDX_PUBLIC_HOST', PUBLIC_HOST],
+  ].filter(([, value]) => value === '');
+  if (missing.length > 0) {
+    throw new Error(
+      `OIDC is enabled but required settings are missing: ${missing
+        .map(([name]) => name)
+        .join(', ')}`,
+    );
+  }
+  if (
+    !Number.isFinite(OIDC_SESSION_MAX_AGE_SECONDS) ||
+    OIDC_SESSION_MAX_AGE_SECONDS <= 0 ||
+    !Number.isFinite(OIDC_TRANSACTION_TTL_SECONDS) ||
+    OIDC_TRANSACTION_TTL_SECONDS <= 0
+  ) {
+    throw new Error('OIDC session and transaction TTLs must be positive');
+  }
+  if (PASSWORD_AUTH_ENABLED) {
+    throw new Error('Password authentication must be disabled in OIDC mode');
+  }
+  let issuer: URL;
+  try {
+    issuer = new URL(OIDC_ISSUER_URL);
+  } catch {
+    throw new Error('HDX_OIDC_ISSUER_URL must be an absolute HTTPS URL');
+  }
+  if (
+    issuer.protocol !== 'https:' ||
+    issuer.username !== '' ||
+    issuer.password !== '' ||
+    issuer.search !== '' ||
+    issuer.hash !== ''
+  ) {
+    throw new Error('HDX_OIDC_ISSUER_URL must be an absolute HTTPS URL');
+  }
+  if (OIDC_REDIRECT_URI !== `https://${PUBLIC_HOST}/api/login/oidc/callback`) {
+    throw new Error(
+      'HDX_OIDC_REDIRECT_URI must be the exact callback on HDX_PUBLIC_HOST',
+    );
+  }
+}
+
+if (INTERNAL_BOOTSTRAP_ENABLED && INTERNAL_BOOTSTRAP_TOKEN_FILE === '') {
+  throw new Error(
+    'HDX_INTERNAL_BOOTSTRAP_TOKEN_FILE is required when internal bootstrap is enabled',
+  );
+}
+
 // Only for single container local deployments, disable authentication
 export const IS_LOCAL_APP_MODE =
   env.IS_LOCAL_APP_MODE === 'DANGEROUSLY_is_local_app_mode💀';

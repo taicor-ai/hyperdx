@@ -6,13 +6,17 @@ import onHeaders from 'on-headers';
 
 import * as config from './config';
 import mcpRouter from './mcp/app';
-import { isUserAuthenticated } from './middleware/auth';
+import {
+  enforceOidcSessionLifetime,
+  isUserAuthenticated,
+} from './middleware/auth';
 import defaultCors from './middleware/cors';
 import { appErrorHandler } from './middleware/error';
 import routers from './routers/api';
 import clickhouseProxyRouter from './routers/api/clickhouseProxy';
 import connectionsRouter from './routers/api/connections';
 import favoritesRouter from './routers/api/favorites';
+import internalBootstrapRouter from './routers/api/internalBootstrap';
 import pinnedFiltersRouter from './routers/api/pinnedFilters';
 import savedSearchRouter from './routers/api/savedSearch';
 import sourcesRouter from './routers/api/sources';
@@ -26,9 +30,7 @@ const app: express.Application = express();
 const sess: session.SessionOptions & { cookie: session.CookieOptions } = {
   // Use a slot-specific cookie name in dev so multiple worktrees on localhost
   // don't overwrite each other's session cookies.
-  ...(config.IS_DEV && process.env.HDX_DEV_SLOT
-    ? { name: `connect.sid.${process.env.HDX_DEV_SLOT}` }
-    : {}),
+  name: config.SESSION_COOKIE_NAME,
   resave: false,
   saveUninitialized: false,
   secret: config.EXPRESS_SESSION_SECRET,
@@ -60,6 +62,7 @@ app.use(session(sess));
 if (!config.IS_LOCAL_APP_MODE) {
   app.use(passport.initialize());
   app.use(passport.session());
+  app.use(enforceOidcSessionLifetime);
 }
 
 if (!config.IS_CI) {
@@ -91,6 +94,9 @@ if (config.USAGE_STATS_ENABLED && !config.IS_CI) {
 // ---------------------------------------------------------------------
 // PUBLIC ROUTES
 app.use('/', routers.rootRouter);
+
+// TOKEN-AUTHENTICATED IN-CLUSTER BOOTSTRAP (never browser/session authenticated)
+app.use('/internal/bootstrap', internalBootstrapRouter);
 
 // SELF-AUTHENTICATED ROUTES (validated via access key, not session middleware)
 app.use('/mcp', mcpRouter);

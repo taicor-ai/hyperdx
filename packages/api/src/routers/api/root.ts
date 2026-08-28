@@ -1,5 +1,6 @@
 import type { InstallationApiResponse } from '@hyperdx/common-utils/dist/types';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { serializeError } from 'serialize-error';
 import { z } from 'zod';
 import { validateRequest } from 'zod-express-middleware';
@@ -18,6 +19,8 @@ import logger from '@/utils/logger';
 import passport from '@/utils/passport';
 import { passwordSchema, validatePassword } from '@/utils/validators';
 
+import { finishOidcLogin, startOidcLogin } from './oidc';
+
 const registrationSchema = z
   .object({
     email: z.string().email(),
@@ -30,6 +33,21 @@ const registrationSchema = z
   });
 
 const router = express.Router();
+const oidcLoginRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+function requirePasswordAuth(
+  _req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
+  if (!config.PASSWORD_AUTH_ENABLED) return res.sendStatus(404);
+  next();
+}
 
 router.get('/health', async (req, res) => {
   res.send({
@@ -54,6 +72,7 @@ router.get('/installation', async (_, res: InstallationEspRes, next) => {
 
 router.post(
   '/login/password',
+  requirePasswordAuth,
   passport.authenticate('local', {
     failWithError: true,
     failureMessage: true,
@@ -64,6 +83,7 @@ router.post(
 
 router.post(
   '/register/password',
+  requirePasswordAuth,
   validateRequest({ body: registrationSchema }),
   async (req, res, next) => {
     try {
@@ -123,63 +143,82 @@ router.post(
   },
 );
 
+router.get('/login/oidc', oidcLoginRateLimit, startOidcLogin);
+router.get('/login/oidc/callback', oidcLoginRateLimit, finishOidcLogin);
+
 router.get('/logout', (req, res, next) => {
   req.logout(function (err) {
     if (err) {
       return next(err);
     }
-    res.redirect(`${config.FRONTEND_REDIRECT_BASE}/login`);
+    req.session.destroy(destroyError => {
+      if (destroyError) return next(destroyError);
+      const cookieOptions: express.CookieOptions = {
+        path: '/',
+        sameSite: 'lax',
+        secure: config.FRONTEND_URL.startsWith('https://'),
+      };
+      if (config.FRONTEND_URL) {
+        cookieOptions.domain = new URL(config.FRONTEND_URL).hostname;
+      }
+      res.clearCookie(config.SESSION_COOKIE_NAME, cookieOptions);
+      res.redirect(`${config.FRONTEND_REDIRECT_BASE}/login`);
+    });
   });
 });
 
 // TODO: rename this ?
-router.post('/team/setup/:token', async (req, res, next) => {
-  try {
-    const { password } = req.body;
-    const { token } = req.params;
+router.post(
+  '/team/setup/:token',
+  requirePasswordAuth,
+  async (req, res, next) => {
+    try {
+      const { password } = req.body;
+      const { token } = req.params;
 
-    if (!validatePassword(password)) {
-      return res.redirect(
-        `${config.FRONTEND_REDIRECT_BASE}/join-team?err=invalid&token=${token}`,
-      );
-    }
+      if (!validatePassword(password)) {
+        return res.redirect(
+          `${config.FRONTEND_REDIRECT_BASE}/join-team?err=invalid&token=${token}`,
+        );
+      }
 
-    const teamInvite = await TeamInvite.findOne({
-      token: req.params.token,
-    });
-    if (!teamInvite) {
-      return res.status(401).send('Invalid token');
-    }
+      const teamInvite = await TeamInvite.findOne({
+        token: req.params.token,
+      });
+      if (!teamInvite) {
+        return res.status(401).send('Invalid token');
+      }
 
-    (User as any).register(
-      new User({
-        email: teamInvite.email,
-        name: teamInvite.email,
-        team: teamInvite.teamId,
-      }),
-      password,
-      async (err: Error, user: any) => {
-        if (err) {
-          logger.error({ err: serializeError(err) }, 'Team setup error');
-          return res.redirect(
-            `${config.FRONTEND_REDIRECT_BASE}/join-team?token=${token}&err=500`,
-          );
-        }
-
-        await TeamInvite.findByIdAndRemove(teamInvite._id);
-
-        req.login(user, err => {
+      (User as any).register(
+        new User({
+          email: teamInvite.email,
+          name: teamInvite.email,
+          team: teamInvite.teamId,
+        }),
+        password,
+        async (err: Error, user: any) => {
           if (err) {
-            return next(err);
+            logger.error({ err: serializeError(err) }, 'Team setup error');
+            return res.redirect(
+              `${config.FRONTEND_REDIRECT_BASE}/join-team?token=${token}&err=500`,
+            );
           }
-          redirectToDashboard(req, res);
-        });
-      },
-    );
-  } catch (e) {
-    next(e);
-  }
-});
+
+          await TeamInvite.findByIdAndRemove(teamInvite._id);
+
+          req.login(user, err => {
+            if (err) {
+              return next(err);
+            }
+            redirectToDashboard(req, res);
+          });
+        },
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.get('/ext/silence-alert/:token', async (req, res) => {
   let isError = false;

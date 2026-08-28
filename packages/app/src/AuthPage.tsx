@@ -128,6 +128,52 @@ export default function AuthPage({ action }: { action: 'register' | 'login' }) {
         password: { name: 'password' },
       };
 
+  if (config.IS_OIDC_ENABLED) {
+    const continueWithTaicor = () => {
+      let returnTo = '/';
+      try {
+        returnTo =
+          window.sessionStorage.getItem('hdx-login-redirect-url') || '/';
+        window.sessionStorage.removeItem('hdx-login-redirect-url');
+      } catch {
+        // Session storage can be unavailable in hardened browsers.
+      }
+      const query = new URLSearchParams({ returnTo });
+      window.location.assign(`/api/login/oidc?${query}`);
+    };
+    return (
+      <div className="AuthPage">
+        <NextSeo title={`${brandName} - Login`} />
+        <LandingHeader activeKey="/login" fixed />
+        <div className="d-flex justify-content-center align-items-center vh-100">
+          <div style={{ width: '26rem' }}>
+            <div className="text-center mb-4 fs-5">
+              Login to <span className="text-brand fw-bold">{brandName}</span>
+            </div>
+            <Paper p={34} shadow="md" radius="md">
+              <Stack gap="lg">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="md"
+                  onClick={continueWithTaicor}
+                  data-test-id="oidc-login"
+                >
+                  Continue with Taicor
+                </Button>
+                {err != null && (
+                  <Notification withCloseButton={false} color="red">
+                    Your Taicor access could not be verified. Please try again.
+                  </Notification>
+                )}
+              </Stack>
+            </Paper>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="AuthPage">
       <NextSeo title={title} />
