@@ -114,6 +114,14 @@ ENV CODE_VERSION=$CODE_VERSION
 ENV OTEL_RESOURCE_ATTRIBUTES="service.version=$CODE_VERSION"
 ENV NODE_ENV=production
 
+# The moving Node Alpine base can lag security rebuilds. Fail the immutable
+# production build unless the runtime TLS packages include OpenSSL's 3.5.8
+# fixes published on 2026-08-25.
+RUN apk add --no-cache --upgrade \
+    'openssl>=3.5.8-r0' \
+    'libcrypto3>=3.5.8-r0' \
+    'libssl3>=3.5.8-r0'
+
 # Remove package managers from production image (not needed at runtime)
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
     /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
@@ -246,4 +254,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/api/health || exit 1
 
 ENTRYPOINT ["sh", "/etc/local/entry.sh"]
-
