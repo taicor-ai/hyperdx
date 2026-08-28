@@ -3,11 +3,28 @@ import { NextSeo } from 'next-seo';
 import { Button, Paper, Text, TextInput } from '@mantine/core';
 
 import { useBrandDisplayName } from './theme/ThemeProvider';
+import { IS_OIDC_ENABLED } from './config';
 
 export default function JoinTeam() {
   const router = useRouter();
   const brandName = useBrandDisplayName();
   const { err, token } = router.query;
+
+  if (IS_OIDC_ENABLED) {
+    return (
+      <div className="AuthPage">
+        <NextSeo title={`Login - ${brandName}`} />
+        <div className="d-flex align-items-center justify-content-center vh-100 p-2">
+          <Paper p="xl" withBorder>
+            <Text mb="md">Team invitations use your Taicor identity.</Text>
+            <Button component="a" href="/login" variant="primary">
+              Continue with Taicor
+            </Button>
+          </Paper>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="AuthPage">

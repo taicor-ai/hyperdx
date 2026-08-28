@@ -1,5 +1,5 @@
 import { Connection } from '@hyperdx/common-utils/dist/types';
-import type { NextFunction, Request, Response } from 'express';
+import type { CookieOptions, NextFunction, Request, Response } from 'express';
 import { serializeError } from 'serialize-error';
 
 import * as config from '@/config';
@@ -26,7 +26,43 @@ declare module 'express-session' {
   interface Session {
     messages: string[]; // Set by passport
     passport: { user: string }; // Set by passport
+    oidcExpiresAt?: number;
+    oidcPending?: boolean;
   }
+}
+
+function clearSessionCookie(res: Response): void {
+  const options: CookieOptions = {
+    path: '/',
+    sameSite: 'lax',
+    secure: config.FRONTEND_URL.startsWith('https://'),
+  };
+  if (config.FRONTEND_URL) {
+    options.domain = new URL(config.FRONTEND_URL).hostname;
+  }
+  res.clearCookie(config.SESSION_COOKIE_NAME, options);
+}
+
+export function enforceOidcSessionLifetime(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  const expiresAt = req.session.oidcExpiresAt;
+  if (expiresAt === undefined) return next();
+  const remaining = expiresAt - Date.now();
+  if (remaining > 0) {
+    req.session.cookie.maxAge = remaining;
+    return next();
+  }
+  req.logout(error => {
+    if (error) return next(error);
+    req.session.destroy(destroyError => {
+      if (destroyError) return next(destroyError);
+      clearSessionCookie(res);
+      next();
+    });
+  });
 }
 
 export function redirectToDashboard(req: Request, res: Response) {
