@@ -54,10 +54,21 @@ const getTransport = () => {
   }
 };
 
+// pino-http's production serializers include request and response headers.
+// Keep the useful HTTP context while ensuring credentials never reach stdout
+// or the HyperDX transport.
+export const REDACTED_PATHS = [
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'res.headers["set-cookie"]',
+  'res.headers.location',
+];
+
 const logger = pino({
   level: MAX_LEVEL,
   transport: getTransport(),
   mixin: getPinoMixinFunction,
+  redact: { paths: REDACTED_PATHS, censor: '[REDACTED]' },
 });
 
 export const expressLogger = pinoHttp({
