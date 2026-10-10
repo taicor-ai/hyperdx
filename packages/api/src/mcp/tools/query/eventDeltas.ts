@@ -1,4 +1,3 @@
-import { ClickhouseClient } from '@hyperdx/common-utils/dist/clickhouse/node';
 import {
   getStableSampleExpression,
   rankProperties,
@@ -12,12 +11,15 @@ import {
 } from '@hyperdx/common-utils/dist/types';
 import { z } from 'zod';
 
+import { ClickhouseClient } from '@/clickhouse';
 import { getConnectionById } from '@/controllers/connection';
 import { getSource } from '@/controllers/sources';
 import type { ToolRegistrar } from '@/mcp/tools/types';
 import { mcpUserError } from '@/mcp/utils/errors';
+import { MCP_QUERY_MAX_EXECUTION_SEC } from '@/mcp/utils/timeout';
 import { trimToolResponse } from '@/utils/trimToolResponse';
 
+import { PREFER_BUILDER_OVER_SQL_NUDGE } from './builderCatalog';
 import { clickHouseErrorResult, parseTimeRange } from './helpers';
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
@@ -142,6 +144,7 @@ export function registerEventDeltas({ context, registerTool }: ToolRegistrar) {
     'clickstack_event_deltas',
     {
       title: 'Compare Events: Target vs Baseline',
+      annotations: { readOnlyHint: true },
       description:
         'Rank the properties of two row groups (logs or trace spans) by ' +
         'how much their value distributions differ. Same algorithm as the ' +
@@ -179,6 +182,8 @@ export function registerEventDeltas({ context, registerTool }: ToolRegistrar) {
         'specific attribute (use clickstack_table groupBy), when you want raw ' +
         'rows (use clickstack_search), or when you need a time-series shape ' +
         '(use clickstack_timeseries).\n\n' +
+        PREFER_BUILDER_OVER_SQL_NUDGE +
+        '\n\n' +
         'OUTPUT SHAPE: an array of properties, each with rank, key, score, ' +
         'semanticBoost (true for well-known OTel attrs like service.name / ' +
         'http.method / error.type / status), targetCount and baselineCount ' +
@@ -354,7 +359,9 @@ export function registerEventDeltas({ context, registerTool }: ToolRegistrar) {
             query_params: targetSql.params,
             format: 'JSON',
             connectionId: source.connection.toString(),
-            clickhouse_settings: { max_execution_time: 30 },
+            clickhouse_settings: {
+              max_execution_time: MCP_QUERY_MAX_EXECUTION_SEC,
+            },
             abort_signal: abortController.signal,
           }),
           clickhouseClient.query({
@@ -362,7 +369,9 @@ export function registerEventDeltas({ context, registerTool }: ToolRegistrar) {
             query_params: baselineSql.params,
             format: 'JSON',
             connectionId: source.connection.toString(),
-            clickhouse_settings: { max_execution_time: 30 },
+            clickhouse_settings: {
+              max_execution_time: MCP_QUERY_MAX_EXECUTION_SEC,
+            },
             abort_signal: abortController.signal,
           }),
         ]);

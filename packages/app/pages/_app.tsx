@@ -22,7 +22,12 @@ import {
   MANTINE_FONT_MAP,
 } from '@/config/fonts';
 import { ibmPlexMono, inter, roboto, robotoMono } from '@/fonts';
-import { AppThemeProvider, useAppTheme } from '@/theme/ThemeProvider';
+import { fetchServerVersion, installHdxDebug } from '@/hdxDebug';
+import {
+  AppThemeProvider,
+  useAppTheme,
+  usePageTitle,
+} from '@/theme/ThemeProvider';
 import { ThemeWrapper } from '@/ThemeWrapper';
 import { NextApiConfigResponseData } from '@/types';
 import { ConfirmProvider } from '@/useConfirm';
@@ -69,12 +74,12 @@ type AppPropsWithLayout = AppProps & {
 // Component that renders Head content requiring user preferences
 // Must be rendered inside AppThemeProvider to avoid hydration mismatch
 function AppHeadContent() {
-  const { theme } = useAppTheme();
+  const title = usePageTitle();
 
   return (
     <Head>
-      <title>{theme.displayName}</title>
-      <meta name="viewport" content="width=device-width, initial-scale=0.75" />
+      <title>{title}</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
       <meta name="google" content="notranslate" />
       <SystemColorSchemeScript />
     </Head>
@@ -125,6 +130,14 @@ function AppContent({
 }
 
 export default function MyApp({ Component, pageProps }: AppPropsWithLayout) {
+  // Expose build identity + debug helpers on window.hdx (all environments).
+  // Installed once; the backend/API version (deployed separately) is fetched
+  // from /api/health and read live via window.hdx's getters.
+  useEffect(() => {
+    installHdxDebug();
+    fetchServerVersion();
+  }, []);
+
   // port to react query ? (needs to wrap with QueryClientProvider)
   useEffect(() => {
     if (IS_LOCAL_MODE) {

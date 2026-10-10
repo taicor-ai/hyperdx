@@ -13,20 +13,25 @@ import {
   COLORS,
   evaluateColorCondition,
   formatAttributeClause,
+  formatColumnEquals,
+  formatDistanceToNowStrictShort,
   formatDurationMs,
   formatDurationMsCompact,
   formatNumber,
   getAllMetricTables,
   getColorFromCSSToken,
   getMetricTableName,
+  isColumnInSelect,
   mapKeyBy,
   mergePath,
+  orderByAfterRemovingSelectItem,
   orderByStringToSortingState,
   parseTimestampToMs,
   resolveConditionalColor,
   sortingStateToOrderByString,
   stripTrailingSlash,
   useQueryHistory,
+  withMapKeyAlias,
 } from '@/utils';
 
 describe('formatAttributeClause', () => {
@@ -42,6 +47,10 @@ describe('formatAttributeClause', () => {
     expect(formatAttributeClause('data', 'user-id', 'abc-123', true)).toBe(
       "data['user-id']='abc-123'",
     );
+
+    expect(formatAttributeClause('data', 'user-id', "O'Brien", true)).toBe(
+      "data['user-id']='O''Brien'",
+    );
   });
 
   it('should format lucene attribute clause correctly', () => {
@@ -55,6 +64,54 @@ describe('formatAttributeClause', () => {
 
     expect(formatAttributeClause('data', 'user-id', 'abc-123', false)).toBe(
       'data.user-id:"abc-123"',
+    );
+
+    expect(formatAttributeClause('data', 'user-id', 'say "hello"', false)).toBe(
+      'data.user-id:"say \\"hello\\""',
+    );
+  });
+
+  it('escapes backslashes so a trailing backslash cannot escape the closing quote', () => {
+    expect(
+      formatAttributeClause('ResourceAttributes', 'path', 'C:\\logs\\', true),
+    ).toBe("ResourceAttributes['path']='C:\\\\logs\\\\'");
+
+    expect(
+      formatAttributeClause('ResourceAttributes', 'path', 'C:\\logs\\', false),
+    ).toBe('ResourceAttributes.path:"C:\\\\logs\\\\"');
+
+    // A value crafted to break out of the SQL literal stays inside it
+    expect(formatAttributeClause('attrs', 'k', "\\' OR 1=1 --", true)).toBe(
+      "attrs['k']='\\\\'' OR 1=1 --'",
+    );
+  });
+});
+
+describe('formatColumnEquals', () => {
+  it('formats SQL column equality with quote escaping', () => {
+    expect(formatColumnEquals('ServiceName', 'my-svc', true)).toBe(
+      "ServiceName = 'my-svc'",
+    );
+    expect(formatColumnEquals('Name', "O'Brien", true)).toBe(
+      "Name = 'O''Brien'",
+    );
+  });
+
+  it('formats Lucene column equality with quote escaping', () => {
+    expect(formatColumnEquals('ServiceName', 'my-svc', false)).toBe(
+      'ServiceName:"my-svc"',
+    );
+    expect(formatColumnEquals('Name', 'say "hello"', false)).toBe(
+      'Name:"say \\"hello\\""',
+    );
+  });
+
+  it('escapes backslashes in both languages', () => {
+    expect(formatColumnEquals('Path', 'C:\\logs\\', true)).toBe(
+      "Path = 'C:\\\\logs\\\\'",
+    );
+    expect(formatColumnEquals('Path', 'C:\\logs\\', false)).toBe(
+      'Path:"C:\\\\logs\\\\"',
     );
   });
 });
@@ -714,6 +771,49 @@ describe('formatDurationMs', () => {
   });
 });
 
+describe('formatDistanceToNowStrictShort', () => {
+  const now = new Date('2025-06-15T12:00:00');
+  const msAgo = (ms: number) => new Date(now.getTime() - ms);
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(now);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('abbreviates seconds, minutes, hours and days', () => {
+    expect(formatDistanceToNowStrictShort(msAgo(1_000))).toBe('1s');
+    expect(formatDistanceToNowStrictShort(msAgo(45_000))).toBe('45s');
+    expect(formatDistanceToNowStrictShort(msAgo(60_000))).toBe('1m');
+    expect(formatDistanceToNowStrictShort(msAgo(5 * 60_000))).toBe('5m');
+    expect(formatDistanceToNowStrictShort(msAgo(3_600_000))).toBe('1h');
+    expect(formatDistanceToNowStrictShort(msAgo(3 * 3_600_000))).toBe('3h');
+    expect(formatDistanceToNowStrictShort(msAgo(86_400_000))).toBe('1d');
+    expect(formatDistanceToNowStrictShort(msAgo(2 * 86_400_000))).toBe('2d');
+  });
+
+  it('abbreviates months', () => {
+    expect(
+      formatDistanceToNowStrictShort(new Date('2025-05-15T12:00:00')),
+    ).toBe('1mo.');
+    expect(
+      formatDistanceToNowStrictShort(new Date('2025-03-15T12:00:00')),
+    ).toBe('3mo.');
+  });
+
+  it('abbreviates years', () => {
+    expect(
+      formatDistanceToNowStrictShort(new Date('2024-06-15T12:00:00')),
+    ).toBe('1y');
+    expect(
+      formatDistanceToNowStrictShort(new Date('2023-06-15T12:00:00')),
+    ).toBe('2y');
+  });
+});
+
 describe('useLocalStorage', () => {
   // Create a mock for localStorage
   let localStorageMock: jest.Mocked<Storage>;
@@ -1320,6 +1420,118 @@ describe('mergePath', () => {
       // no-op because Number.isInteger(asNumber) succeeds. Sanity check.
       expect(mergePath(['SomeArray', '0'])).toBe('SomeArray[1]');
     });
+  });
+});
+
+describe('withMapKeyAlias', () => {
+  const noColumns = new Set(['Timestamp', 'Body']);
+
+  it('labels a Map subscript with its key', () => {
+    expect(
+      withMapKeyAlias("ResourceAttributes['service.name']", [], noColumns),
+    ).toBe(`ResourceAttributes['service.name'] AS "service.name"`);
+    expect(withMapKeyAlias("`LogAttributes`['k8s.pod']", [], noColumns)).toBe(
+      '`LogAttributes`[\'k8s.pod\'] AS "k8s.pod"',
+    );
+  });
+
+  it('unescapes the key the way mergePath escaped it', () => {
+    expect(withMapKeyAlias("LogAttributes['it\\'s']", [], noColumns)).toBe(
+      `LogAttributes['it\\'s'] AS "it's"`,
+    );
+  });
+
+  it('leaves anything that is not a bare Map subscript alone', () => {
+    [
+      'Body',
+      'lower(Body)',
+      "LogAttributes['a']['b']",
+      "JSONExtractString(Body, 'a')",
+      "LogAttributes['a'] AS a",
+    ].forEach(column => {
+      expect(withMapKeyAlias(column, [], noColumns)).toBe(column);
+    });
+  });
+
+  it('keeps the derived name when the alias could change the query', () => {
+    // An alias shadows a column of the same name in WHERE and ORDER BY
+    expect(
+      withMapKeyAlias(
+        "ResourceAttributes['ServiceName']",
+        [],
+        new Set(['ServiceName']),
+      ),
+    ).toBe("ResourceAttributes['ServiceName']");
+    // Two selected columns cannot share a name
+    expect(
+      withMapKeyAlias(
+        "LogAttributes['http.method']",
+        [`SpanAttributes['http.method'] AS "http.method"`],
+        noColumns,
+      ),
+    ).toBe("LogAttributes['http.method']");
+    // Keys that would need escaping inside the quoted alias
+    expect(withMapKeyAlias(`LogAttributes['a"b']`, [], noColumns)).toBe(
+      `LogAttributes['a"b']`,
+    );
+    // Table columns not loaded yet: a clash with one cannot be ruled out
+    expect(
+      withMapKeyAlias("ResourceAttributes['ServiceName']", [], new Set()),
+    ).toBe("ResourceAttributes['ServiceName']");
+  });
+});
+
+describe('isColumnInSelect', () => {
+  it('matches a column whether or not it was aliased', () => {
+    const select = [
+      'Timestamp',
+      `ResourceAttributes['service.name'] AS "service.name"`,
+    ];
+    expect(isColumnInSelect(select, 'Timestamp')).toBe(true);
+    expect(isColumnInSelect(select, "ResourceAttributes['service.name']")).toBe(
+      true,
+    );
+    expect(isColumnInSelect(select, 'Body')).toBe(false);
+    expect(isColumnInSelect(undefined, 'Body')).toBe(false);
+  });
+
+  it('matches a hand-typed alias too', () => {
+    expect(isColumnInSelect(['Body AS b'], 'Body')).toBe(true);
+    expect(isColumnInSelect(['lower(Body) AS `b`'], 'lower(Body)')).toBe(true);
+  });
+
+  it('does not mistake a cast for an alias', () => {
+    expect(isColumnInSelect(['CAST(x AS String)'], 'CAST(x')).toBe(false);
+  });
+});
+
+describe('orderByAfterRemovingSelectItem', () => {
+  const item = `ResourceAttributes['service.name'] AS "service.name"`;
+
+  it('drops a sort on the alias of the removed column', () => {
+    expect(
+      orderByAfterRemovingSelectItem(
+        item,
+        '"service.name" DESC',
+        'Timestamp DESC',
+      ),
+    ).toBe('Timestamp DESC');
+    expect(orderByAfterRemovingSelectItem(item, '"service.name" ASC', '')).toBe(
+      '',
+    );
+  });
+
+  it('keeps any other sort', () => {
+    expect(
+      orderByAfterRemovingSelectItem(item, 'Timestamp ASC', 'Timestamp DESC'),
+    ).toBe('Timestamp ASC');
+    expect(orderByAfterRemovingSelectItem(item, '"http.method" DESC', '')).toBe(
+      '"http.method" DESC',
+    );
+    // A column without an alias sorts by its own expression, which is not affected
+    expect(
+      orderByAfterRemovingSelectItem('Body', 'Body DESC', 'Timestamp DESC'),
+    ).toBe('Body DESC');
   });
 });
 

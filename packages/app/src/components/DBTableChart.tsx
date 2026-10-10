@@ -1,4 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
+import cx from 'classnames';
+import { inferNumericColumn } from '@hyperdx/common-utils/dist/clickhouse';
 import { isRatioChartConfig } from '@hyperdx/common-utils/dist/core/renderChartConfig';
 import {
   isBuilderChartConfig,
@@ -15,13 +17,19 @@ import { SortingState } from '@tanstack/react-table';
 
 import {
   buildMVDateRangeIndicator,
+  convertToPromqlTableChartConfig,
   convertToTableChartConfig,
 } from '@/ChartUtils';
 import { Table, TableVariant } from '@/HDXMultiSeriesTableChart';
+import { getMinGranularitySeconds } from '@/hooks/useChartConfig';
 import { useMVOptimizationExplanation } from '@/hooks/useMVOptimizationExplanation';
 import useOffsetPaginatedQuery from '@/hooks/useOffsetPaginatedQuery';
 import { useOnClickLinkBuilder } from '@/hooks/useOnClickLinkBuilder';
-import { useChartNumberFormats, useSource } from '@/source';
+import {
+  getBuilderValueColumnCount,
+  useChartNumberFormats,
+  useSource,
+} from '@/source';
 import { useIntersectionObserver } from '@/utils';
 
 import ChartContainer from './charts/ChartContainer';
@@ -81,9 +89,16 @@ export default function DBTableChart({
     [onSortingChange],
   );
 
+  const minGranularitySeconds = getMinGranularitySeconds(source);
+
   const queriedConfig = useMemo(() => {
     if (isRawSqlChartConfig(config)) return config;
-    if (isPromqlChartConfig(config)) return config;
+    if (isPromqlChartConfig(config)) {
+      return convertToPromqlTableChartConfig({
+        ...config,
+        minGranularitySeconds,
+      });
+    }
 
     const _config = convertToTableChartConfig(config);
 
@@ -96,17 +111,26 @@ export default function DBTableChart({
       });
     }
     return _config;
-  }, [config, effectiveSort]);
+  }, [config, effectiveSort, minGranularitySeconds]);
 
   const { data: mvOptimizationData } = useMVOptimizationExplanation(
     isBuilderChartConfig(queriedConfig) ? queriedConfig : undefined,
   );
 
-  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } =
-    useOffsetPaginatedQuery(queriedConfig, {
-      enabled,
-      queryKeyPrefix,
-    });
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isLoading,
+    isError,
+    error,
+    isPlaceholderData,
+  } = useOffsetPaginatedQuery(queriedConfig, {
+    enabled,
+    queryKeyPrefix,
+    // Keep the current rows on screen while a refresh loads the new range
+    keepPreviousData: true,
+  });
   const { observerRef: fetchMoreRef } = useIntersectionObserver(fetchNextPage);
 
   // Returns an array of aliases, so we can check if something is using an alias
@@ -137,7 +161,11 @@ export default function DBTableChart({
   // identically and the columns memo consumes them the same way. Color targets
   // aggregation (series) columns only; group-by columns are not select items
   // and never appear here. Ratio configs merge two series into one column, so
-  // per-column color is skipped (matching the numberFormat treatment).
+  // per-column color is skipped (matching the numberFormat treatment). Metric
+  // formula configs with hidden operand series project no per-series columns
+  // at all (only formula columns, which carry no color config), so they're
+  // skipped too; with operands shown the positional mapping below still holds
+  // (formula columns come after the operands and simply get no color).
   const { colorByColumn, rulesByColumn } = useMemo(() => {
     const colorByColumn = new Map<string, ChartPaletteToken>();
     const rulesByColumn = new Map<string, ColorCondition[]>();
@@ -146,7 +174,9 @@ export default function DBTableChart({
       !meta ||
       !isBuilderChartConfig(queriedConfig) ||
       !Array.isArray(queriedConfig.select) ||
-      isRatioChartConfig(queriedConfig.select, queriedConfig)
+      isRatioChartConfig(queriedConfig.select, queriedConfig) ||
+      (queriedConfig.formulas?.length &&
+        queriedConfig.showOperandSeries === false)
     ) {
       return { colorByColumn, rulesByColumn };
     }
@@ -181,10 +211,19 @@ export default function DBTableChart({
       isBuilderChartConfig(queriedConfig) &&
       Array.isArray(queriedConfig.select)
     ) {
-      const isRatio = isRatioChartConfig(queriedConfig.select, queriedConfig);
-      const seriesCount = isRatio ? 1 : queriedConfig.select.length;
+      // Value columns come first (formula-aware: operands + formula columns,
+      // or one merged ratio column); everything after is a group-by column.
+      const seriesCount = getBuilderValueColumnCount(queriedConfig);
       const groupByCount = allKeys.length - seriesCount;
       groupByKeys = groupByCount > 0 ? allKeys.slice(-groupByCount) : [];
+    } else if (isPromqlChartConfig(queriedConfig)) {
+      // A PromQL table projects the sample value plus a column per Prometheus
+      // label (and a timestamp for range queries). Only the value column is
+      // numeric, so only it takes the tile's number format.
+      const numericKeys = new Set(
+        inferNumericColumn(data?.meta ?? [])?.map(column => column.name),
+      );
+      groupByKeys = allKeys.filter(key => !numericKeys.has(key));
     }
 
     // Builder table configs may opt to render Group By columns
@@ -284,20 +323,34 @@ export default function DBTableChart({
       ) : isError && error ? (
         <ChartErrorState error={error} variant={errorVariant} />
       ) : data?.data.length === 0 ? (
-        <div className="d-flex h-100 w-100 align-items-center justify-content-center text-muted">
+        <div
+          className={cx(
+            'd-flex h-100 w-100 align-items-center justify-content-center text-muted',
+            { 'effect-pulse': isPlaceholderData },
+          )}
+        >
           No data found within time range.
         </div>
       ) : (
         <Table
           data={data?.data ?? []}
           columns={columns}
-          getRowAction={getRowAction ?? undefined}
-          getRowSearchLink={getRowAction ? undefined : getRowSearchLink}
+          // Rows kept from the previous query would link with the new date
+          // range and config, so leave them inert until fresh rows arrive.
+          getRowAction={
+            isPlaceholderData ? undefined : (getRowAction ?? undefined)
+          }
+          getRowSearchLink={
+            isPlaceholderData || getRowAction ? undefined : getRowSearchLink
+          }
           sorting={effectiveSort}
-          enableClientSideSorting={isRawSqlChartConfig(config)}
+          enableClientSideSorting={
+            isRawSqlChartConfig(config) || isPromqlChartConfig(config)
+          }
           onSortingChange={handleSortingChange}
           variant={variant}
           alternateRowBackground={!!queriedConfig.alternateRowBackground}
+          className={isPlaceholderData ? 'effect-pulse' : undefined}
           tableBottom={
             hasNextPage && (
               <Text ref={fetchMoreRef} ta="center">

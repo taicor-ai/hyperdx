@@ -14,6 +14,7 @@ import {
 } from '@/controllers/ai';
 import { getSource } from '@/controllers/sources';
 import { getNonNullUserWithTeam } from '@/middleware/auth';
+import { llmTelemetry } from '@/utils/aiTelemetry';
 import { Api404Error, Api500Error } from '@/utils/errors';
 import { withOperationMetrics } from '@/utils/instrumentation';
 import logger from '@/utils/logger';
@@ -33,7 +34,7 @@ router.post(
     try {
       const model = getAIModel();
 
-      const { teamId } = getNonNullUserWithTeam(req);
+      const { teamId, userId } = getNonNullUserWithTeam(req);
 
       const { text, sourceId } = req.body;
 
@@ -105,7 +106,10 @@ ${JSON.stringify(allFieldsWithKeys.slice(0, 200).map(f => ({ field: f.key, type:
               output: Output.object({
                 schema: AssistantLineTableConfigSchema,
               }),
-              experimental_telemetry: { isEnabled: true },
+              ...llmTelemetry({
+                teamId: teamId.toString(),
+                userId: userId.toString(),
+              }),
               prompt,
             });
 

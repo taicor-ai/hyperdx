@@ -17,13 +17,17 @@ import clickhouseProxyRouter from './routers/api/clickhouseProxy';
 import connectionsRouter from './routers/api/connections';
 import favoritesRouter from './routers/api/favorites';
 import internalBootstrapRouter from './routers/api/internalBootstrap';
+import iacRouter from './routers/api/iac';
 import pinnedFiltersRouter from './routers/api/pinnedFilters';
 import savedSearchRouter from './routers/api/savedSearch';
 import sourcesRouter from './routers/api/sources';
 import externalRoutersV2 from './routers/external-api/v2';
 import usageStats from './tasks/usageStats';
+import { registerAITelemetry } from './utils/aiTelemetry';
 import logger, { expressLogger } from './utils/logger';
 import passport from './utils/passport';
+
+registerAITelemetry();
 
 const app: express.Application = express();
 
@@ -114,6 +118,7 @@ app.use('/saved-search', isUserAuthenticated, savedSearchRouter);
 app.use('/favorites', isUserAuthenticated, favoritesRouter);
 app.use('/pinned-filters', isUserAuthenticated, pinnedFiltersRouter);
 app.use('/clickhouse-proxy', isUserAuthenticated, clickhouseProxyRouter);
+app.use('/iac', isUserAuthenticated, iacRouter);
 if (config.IS_PROMQL_ENABLED) {
   app.use('/v1/prometheus', isUserAuthenticated, routers.prometheusRouter);
 }

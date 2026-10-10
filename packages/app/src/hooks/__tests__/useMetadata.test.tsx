@@ -336,6 +336,32 @@ describe('useMultipleAllFields', () => {
     expect(result.current.data).toEqual(fieldsA);
   });
 
+  it('falls back to each connection timestampValueExpression when none is passed', async () => {
+    const getAllFields = jest
+      .spyOn(mockMetadata, 'getAllFields')
+      .mockResolvedValue(fieldsA);
+
+    const { result } = renderHook(
+      () =>
+        useMultipleAllFields([
+          { ...tcA, timestampValueExpression: 'TimestampA' },
+          tcB,
+        ]),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getAllFields).toHaveBeenCalledWith(
+      expect.objectContaining({ timestampValueExpression: 'TimestampA' }),
+    );
+    expect(getAllFields).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tableName: 'table_b',
+        timestampValueExpression: undefined,
+      }),
+    );
+  });
+
   it('should deduplicate fields across successful connections', async () => {
     jest
       .spyOn(mockMetadata, 'getAllFields')
@@ -399,6 +425,67 @@ describe('useMultipleAllFields', () => {
     const { result } = renderHook(() => useMultipleAllFields([tcA]), {
       wrapper,
     });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toEqual(fieldsA);
+  });
+
+  // `tcFromSource` returns an all-empty-strings connection (never undefined)
+  // while the source is still loading, so an unpopulated connection must never
+  // reach `getAllFields` — it would issue `DESCRIBE .` with no connection id.
+  it('should not fetch for an unpopulated table connection', async () => {
+    const getAllFields = jest.spyOn(mockMetadata, 'getAllFields');
+
+    const { result } = renderHook(
+      () =>
+        useMultipleAllFields([
+          { databaseName: '', tableName: '', connectionId: '' },
+        ]),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    expect(getAllFields).not.toHaveBeenCalled();
+  });
+
+  it('should not fetch for an unpopulated table connection even when the caller passes enabled: true', async () => {
+    const getAllFields = jest.spyOn(mockMetadata, 'getAllFields');
+
+    const { result } = renderHook(
+      () =>
+        useMultipleAllFields(
+          [{ databaseName: '', tableName: '', connectionId: '' }],
+          { enabled: true },
+        ),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    expect(getAllFields).not.toHaveBeenCalled();
+  });
+
+  it('should still honor a caller opting out with enabled: false', async () => {
+    const getAllFields = jest
+      .spyOn(mockMetadata, 'getAllFields')
+      .mockResolvedValue(fieldsA);
+
+    const { result } = renderHook(
+      () => useMultipleAllFields([tcA], { enabled: false }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    expect(getAllFields).not.toHaveBeenCalled();
+  });
+
+  it('should fetch a populated table connection when the caller passes enabled: true', async () => {
+    jest.spyOn(mockMetadata, 'getAllFields').mockResolvedValueOnce(fieldsA);
+
+    const { result } = renderHook(
+      () => useMultipleAllFields([tcA], { enabled: true }),
+      { wrapper },
+    );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 

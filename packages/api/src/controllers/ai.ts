@@ -1,22 +1,22 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { ClickhouseClient } from '@hyperdx/common-utils/dist/clickhouse/node';
 import {
   getMetadata,
   TableMetadata,
+  tcFromSource,
 } from '@hyperdx/common-utils/dist/core/metadata';
 import {
   AILineTableResponse,
   AssistantLineTableConfigSchema,
   ChartConfigWithDateRange,
   pickSampleWeightExpressionProps,
-  SourceKind,
 } from '@hyperdx/common-utils/dist/types';
 import type { LanguageModel } from 'ai';
 import * as chrono from 'chrono-node';
 import ms from 'ms';
 import z from 'zod';
 
+import { ClickhouseClient } from '@/clickhouse';
 import * as config from '@/config';
 import { ISource } from '@/models/source';
 import { parseJSON } from '@/utils/common';
@@ -107,6 +107,8 @@ export async function getAIMetadata(source: ISource) {
     databaseName,
     tableName,
     connectionId,
+    metadataMVs: tcFromSource(source).metadataMVs,
+    timestampValueExpression: source.timestampValueExpression,
   });
 
   // TODO: Dedup with DBSearchPageFilters.tsx logic

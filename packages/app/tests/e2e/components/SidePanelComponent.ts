@@ -4,6 +4,8 @@
  */
 import { Locator, Page } from '@playwright/test';
 
+import { WhereInputComponent } from './WhereInputComponent';
+
 export class SidePanelComponent {
   readonly page: Page;
   private readonly panelContainer: Locator;
@@ -33,6 +35,22 @@ export class SidePanelComponent {
    */
   get tabs() {
     return this.tabsContainer;
+  }
+
+  /**
+   * The row-level error state shown when the full row data query fails.
+   */
+  get errorState() {
+    return this.panelContainer.getByTestId('row-error-state');
+  }
+
+  /**
+   * The "Known Columns List" hint rendered inside the error state when the
+   * failure looks like a `SELECT *` against a Distributed/Merge table whose
+   * target tables have mismatched columns.
+   */
+  get knownColumnsListHint() {
+    return this.panelContainer.getByTestId('known-columns-list-hint');
   }
 
   /**
@@ -144,6 +162,131 @@ export class SidePanelComponent {
     // resolve, so allow a longer window than the default tab-click timeout.
     await this.viewTraceButton.waitFor({ state: 'visible', timeout: 10_000 });
     await this.viewTraceButton.click({ timeout: 10_000 });
+  }
+
+  /**
+   * The Surrounding Context tab. Its "Custom" mode reveals a WHERE input that
+   * narrows the surrounding rows.
+   */
+  get contextTab() {
+    return this.page.getByTestId('side-panel-tab-context');
+  }
+
+  /**
+   * Pick a mode in the Surrounding Context tab's segmented control (All,
+   * Service, Host, Pod, Node, Custom). Clicks the label because Mantine's
+   * SegmentedControl hides the underlying radio.
+   */
+  async setContextBy(mode: string) {
+    await this.contextTab.getByText(mode, { exact: true }).click();
+  }
+
+  /**
+   * The trace waterfall's spans and logs filters, each a `SearchWhereInput`
+   * with its own language switch. Both are collapsed behind the "Show Filters"
+   * toggle — call `toggleTraceFilters` first.
+   */
+  get traceSpansFilter() {
+    return this.page.getByTestId('trace-spans-filter');
+  }
+
+  get traceLogsFilter() {
+    return this.page.getByTestId('trace-logs-filter');
+  }
+
+  /** The spans filter's WHERE control. Call `toggleTraceFilters` first. */
+  get traceSpansWhereInput() {
+    return new WhereInputComponent(this.page, this.traceSpansFilter);
+  }
+
+  /** Expand or collapse the trace waterfall's filter inputs. */
+  async toggleTraceFilters() {
+    await this.page.getByTestId('trace-filters-toggle').click();
+  }
+
+  /**
+   * A clickable span row in the trace waterfall, matched by its label text.
+   * Clicking it opens the span detail panel (Overview tab).
+   */
+  getWaterfallSpan(name: string) {
+    return this.panelContainer
+      .locator('[role="button"]')
+      .filter({ hasText: name });
+  }
+
+  async clickWaterfallSpan(name: string) {
+    await this.getWaterfallSpan(name).first().click({ timeout: 10_000 });
+  }
+
+  /**
+   * Rows in the span detail's "Span Links" section. Each row's open action
+   * (`span-link-open-trace`) shows the linked span's name once the target
+   * span is resolved, or "Open trace" as the unresolved fallback.
+   */
+  get spanLinkRows() {
+    return this.panelContainer.getByTestId('span-link-row');
+  }
+
+  get spanLinkOpenActions() {
+    return this.panelContainer.getByTestId('span-link-open-trace');
+  }
+
+  /**
+   * Rows in the span detail's "Linked from" section (spans whose links
+   * reference the selected span), and the per-row action that opens the
+   * referencing span's trace.
+   */
+  get linkedFromRows() {
+    return this.panelContainer.getByTestId('linked-from-row');
+  }
+
+  get linkedFromOpenActions() {
+    return this.panelContainer.getByTestId('linked-from-open-span');
+  }
+
+  /**
+   * Key labels of the JSON viewer's depth-0 rows. Nested rows are excluded so
+   * the list is a flat sequence that reverses cleanly when the order flips —
+   * nested children stay grouped under their parent, so a full-tree list does
+   * not.
+   */
+  get jsonViewerTopLevelKeys() {
+    return this.panelContainer.locator(
+      '[data-testid="json-viewer-line"][data-depth="0"] [class*="keyContainer"] > [class*="key"]',
+    );
+  }
+
+  async getJsonViewerTopLevelKeys(): Promise<string[]> {
+    await this.jsonViewerTopLevelKeys
+      .first()
+      .waitFor({ state: 'visible', timeout: 10_000 });
+    const keys = await this.jsonViewerTopLevelKeys.allInnerTexts();
+    return keys.map(key => key.trim()).filter(Boolean);
+  }
+
+  /**
+   * Sort in the browser, where the viewer's own `localeCompare` runs — Node's
+   * ICU orders mixed-case keys differently, so sorting test-side would compare
+   * against a different collation than the one under test.
+   */
+  async sortKeysLikeViewer(keys: string[]): Promise<string[]> {
+    return this.page.evaluate(
+      (ks: string[]) =>
+        [...ks].sort((a, b) =>
+          a.localeCompare(b, undefined, { numeric: true }),
+        ),
+      keys,
+    );
+  }
+
+  /** Pick a key-order option from the JSON viewer's view options menu. */
+  async selectJsonKeyOrder(order: 'asc' | 'desc' | 'original') {
+    await this.panelContainer
+      .getByTestId('json-viewer-options-menu')
+      .click({ timeout: this.defaultTimeout });
+    await this.panelContainer
+      .getByTestId(`json-viewer-key-order-${order}`)
+      .click({ timeout: this.defaultTimeout });
   }
 
   /**

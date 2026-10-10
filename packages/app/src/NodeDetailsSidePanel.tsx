@@ -23,7 +23,6 @@ import { DBTimeChart } from '@/components/DBTimeChart';
 import { DrawerBody, DrawerHeader } from '@/components/DrawerUtils';
 import { InfraPodsStatusTable } from '@/KubernetesDashboardPage';
 import { getEventBody } from '@/source';
-import { parseTimeQuery, useTimeQuery } from '@/timeQuery';
 import { formatUptime } from '@/utils';
 import { useZIndex, ZIndexContext } from '@/zIndex';
 
@@ -34,7 +33,6 @@ import { useGetKeyValues, useTableMetadata } from './hooks/useMetadata';
 import styles from '@styles/LogSidePanel.module.scss';
 
 const CHART_HEIGHT = 300;
-const defaultTimeRange = parseTimeQuery('Past 1h', false);
 
 const PodDetailsProperty = React.memo(
   ({ label, value }: { label: string; value?: React.ReactNode }) => {
@@ -234,32 +232,25 @@ function NodeLogs({
   );
 }
 
-export default function NodeDetailsSidePanel({
+function NodeDetailsSidePanelInner({
   metricSource,
   logSource,
+  dateRange,
+  nodeName,
+  setNodeName,
 }: {
   metricSource: TMetricSource;
   logSource: TLogSource;
+  dateRange: [Date, Date];
+  nodeName: string;
+  setNodeName: (value: string | null) => void;
 }) {
-  const [nodeName, setNodeName] = useQueryState(
-    'nodeName',
-    parseAsString.withDefault(''),
-  );
-
   const contextZIndex = useZIndex();
   const drawerZIndex = contextZIndex + 10;
 
   const metricsWhere = React.useMemo(() => {
     return `${metricSource?.resourceAttributesExpression}.k8s.node.name:"${nodeName}"`;
   }, [nodeName, metricSource]);
-
-  const { searchedTimeRange: dateRange } = useTimeQuery({
-    defaultValue: 'Past 1h',
-    defaultTimeRange: [
-      defaultTimeRange?.[0]?.getTime() ?? -1,
-      defaultTimeRange?.[1]?.getTime() ?? -1,
-    ],
-  });
 
   const { data: logsTableMetadata } = useTableMetadata(tcFromSource(logSource));
 
@@ -350,7 +341,7 @@ export default function NodeDetailsSidePanel({
         },
       }}
     >
-      <ZIndexContext.Provider value={drawerZIndex}>
+      <ZIndexContext value={drawerZIndex}>
         <IsolatedChartSyncProvider>
           <div className={styles.panel} data-testid="k8s-node-details-panel">
             <DrawerHeader
@@ -451,7 +442,27 @@ export default function NodeDetailsSidePanel({
             </DrawerBody>
           </div>
         </IsolatedChartSyncProvider>
-      </ZIndexContext.Provider>
+      </ZIndexContext>
     </Drawer>
+  );
+}
+
+export default function NodeDetailsSidePanel(props: {
+  metricSource: TMetricSource;
+  logSource: TLogSource;
+  dateRange: [Date, Date];
+}) {
+  const [nodeName, setNodeName] = useQueryState(
+    'nodeName',
+    parseAsString.withDefault(''),
+  );
+
+  return (
+    <NodeDetailsSidePanelInner
+      {...props}
+      key={nodeName || 'empty'}
+      nodeName={nodeName}
+      setNodeName={setNodeName}
+    />
   );
 }
