@@ -299,6 +299,10 @@ export class ProxyClickhouseClient extends BaseClickhouseClient {
   ) {
     super({
       host: `${apiClient.getApiUrl()}/clickhouse-proxy`,
+      // This extends the base client, not the node one, so it never sees the
+      // AsyncLocalStorage scope the API uses. A client-level surface is all
+      // the attribution the CLI gets.
+      attribution: { surface: 'cli' },
       ...opts,
     });
     this.apiClient = apiClient;
@@ -350,9 +354,6 @@ export class ProxyClickhouseClient extends BaseClickhouseClient {
       log: { level: ClickHouseLogLevel.OFF },
     });
   }
-
-  // Silence the "Sending Query: ..." debug output from BaseClickhouseClient
-  protected override logDebugQuery(): void {}
 
   // This subclass always builds a node client, so narrow the base class's
   // platform-agnostic client type to the node-specific one.
@@ -554,6 +555,8 @@ export interface AlertItem {
   tileId?: string;
   name?: string | null;
   message?: string | null;
+  displayName?: string;
+  tags?: string[];
   createdAt: string;
   updatedAt: string;
   history: AlertHistoryItem[];

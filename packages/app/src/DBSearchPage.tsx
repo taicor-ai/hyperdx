@@ -42,6 +42,7 @@ import {
   ChartConfigWithDateRange,
   DisplayType,
   Filter,
+  isPersistableUserId,
   isTraceSource,
   SourceKind,
   TSource,
@@ -84,6 +85,7 @@ import { keepPreviousData, useIsFetching } from '@tanstack/react-query';
 import { SortingState } from '@tanstack/react-table';
 import CodeMirror from '@uiw/react-codemirror';
 
+import api, { useCompleteOnboardingTask } from '@/api';
 import { ActiveFilterPills } from '@/components/ActiveFilterPills';
 import { AlertStatusIcon } from '@/components/AlertStatusIcon';
 import { ContactSupportText } from '@/components/ContactSupportText';
@@ -93,6 +95,8 @@ import { DBTimeChart, type SeriesGroupFilter } from '@/components/DBTimeChart';
 import EmptyState from '@/components/EmptyState';
 import { ErrorBoundary } from '@/components/Error/ErrorBoundary';
 import { FavoriteButton } from '@/components/FavoriteButton';
+import ResourceTerraformPopover from '@/components/Iac/ResourceTerraformPopover';
+import { InlineNameInput } from '@/components/InlineNameInput/InlineNameInput';
 import { InputControlled } from '@/components/InputControlled';
 import OnboardingModal from '@/components/OnboardingModal';
 import SearchWhereInput, {
@@ -108,7 +112,10 @@ import { TimePicker } from '@/components/TimePicker';
 import { IS_LOCAL_MODE } from '@/config';
 import { useAliasMapFromChartConfig } from '@/hooks/useChartConfig';
 import { useExplainQuery } from '@/hooks/useExplainQuery';
+import { useResolvedSourceParam } from '@/hooks/useResolvedSourceParam';
 import { withAppNav } from '@/layout';
+import { isNonTrivialSearch } from '@/OnboardingChecklist/onboardingTasks';
+import { QueryAttributionProvider } from '@/queryAttribution';
 import {
   useCreateSavedSearch,
   useDeleteSavedSearch,
@@ -117,17 +124,20 @@ import {
 } from '@/savedSearch';
 import { useSearchPageFilterState } from '@/searchFilters';
 import { getEventBody, useSource, useSources } from '@/source';
-import { useAppTheme, useBrandDisplayName } from '@/theme/ThemeProvider';
+import { useAppTheme, usePageTitle } from '@/theme/ThemeProvider';
 import {
   parseRelativeTimeQuery,
-  parseTimeQuery,
+  useDefaultTimeRange,
   useNewTimeQuery,
 } from '@/timeQuery';
 import {
   formatDurationMs,
+  orderByAfterRemovingSelectItem,
   QUERY_LOCAL_STORAGE,
+  selectItemExpression,
   useLocalStorage,
   usePrevious,
+  withMapKeyAlias,
 } from '@/utils';
 
 import ChartSQLPreview, { SQLPreview } from './components/ChartSQLPreview';
@@ -160,7 +170,6 @@ import {
 } from './utils/queryParsers';
 import { LOCAL_STORE_CONNECTIONS_KEY } from './connection';
 import { DBSearchPageAlertModal } from './DBSearchPageAlertModal';
-import { EditablePageName } from './EditablePageName';
 import { SearchConfig } from './types';
 import { FormatTime } from './useFormatTime';
 
@@ -210,22 +219,25 @@ const SEARCH_RESULTS_PANEL_KEEP_OPEN_SELECTOR =
 
 // Helper function to get the default source id
 export function getDefaultSourceId(
-  sources: { id: string; disabled?: boolean }[] | undefined,
+  sources: Pick<TSource, 'id' | 'kind' | 'disabled'>[] | undefined,
   lastSelectedSourceId: string | undefined,
 ): string {
   if (!sources || sources.length === 0) return '';
 
-  // Filter out disabled sources
-  const enabledSources = sources.filter(s => !s.disabled);
-  if (enabledSources.length === 0) return '';
+  // Restrict to sources that this page can actually display.
+  const searchableSources = sources.filter(
+    s => ALLOWED_SOURCE_KINDS.includes(s.kind) && !s.disabled,
+  );
+  if (searchableSources.length === 0) return '';
 
   if (
     lastSelectedSourceId &&
-    enabledSources.some(s => s.id === lastSelectedSourceId)
+    searchableSources.some(s => s.id === lastSelectedSourceId)
   ) {
     return lastSelectedSourceId;
   }
-  return enabledSources[0].id;
+
+  return searchableSources[0].id;
 }
 
 function SourceEditModal({
@@ -549,8 +561,18 @@ function SaveSearchModalComponent({
             tags: tags,
           });
 
-          router.push(`/search/${savedSearch.id}${window.location.search}`);
-          onClose();
+          // useQueryStates can restore the previous search URL during a
+          // client-side transition. Reload the saved-search route instead so
+          // the newly created search hydrates from its stored configuration,
+          // rather than stale query state from the previous search. Preserve
+          // only the independent time range, which is not saved-search config.
+          window.location.assign(
+            buildSavedSearchNavigationUrl(
+              router.basePath,
+              savedSearch.id,
+              window.location.search,
+            ),
+          );
         } catch (error) {
           console.error('Error creating saved search:', error);
           notifications.show({
@@ -690,9 +712,6 @@ function SaveSearchModalComponent({
   );
 }
 const SaveSearchModal = memo(SaveSearchModalComponent);
-
-// TODO: This is a hack to set the default time range
-const defaultTimeRange = parseTimeQuery('Past 15m', false) as [Date, Date];
 
 function useLiveUpdate({
   isLive,
@@ -887,6 +906,33 @@ const queryStateMap = {
   orderBy: parseAsStringEncoded,
 };
 
+export function buildSavedSearchNavigationUrl(
+  basePath: string,
+  savedSearchId: string,
+  currentSearch: string,
+) {
+  const currentParams = new URLSearchParams(currentSearch);
+  const timeRangeParams = new URLSearchParams();
+  const from = currentParams.get('from');
+  const to = currentParams.get('to');
+
+  if (from != null && to != null) {
+    timeRangeParams.set('from', from);
+    timeRangeParams.set('to', to);
+
+    // An explicit absolute range must remain in range mode after the saved
+    // search reload; otherwise the default live-tail mode can take over.
+    if (currentParams.get('isLive') === 'false') {
+      timeRangeParams.set('isLive', 'false');
+    }
+  }
+
+  const timeRangeSearch = timeRangeParams.toString();
+  return `${basePath}/search/${savedSearchId}${
+    timeRangeSearch ? `?${timeRangeSearch}` : ''
+  }`;
+}
+
 export function useSearchTelemetry({
   isAnyQueryFetching,
   isLive,
@@ -960,14 +1006,55 @@ export function useSearchTelemetry({
   return { searchElapsedMs: completedSearch?.latency_ms ?? null };
 }
 
-export function DBSearchPage() {
-  const brandName = useBrandDisplayName();
-  // Next router is laggy behind window.location, which causes race
-  // conditions with useQueryStates, so we'll parse it directly
+/**
+ * The saved search being shown, or null for an ad-hoc one.
+ *
+ * Read from the URL directly because the Next router lags window.location,
+ * which races with useQueryStates.
+ */
+function getSavedSearchIdFromPath(): string | null {
   const paths = window.location.pathname.split('/');
-  const savedSearchId = paths.length === 3 ? paths[2] : null;
+  return paths.length === 3 ? paths[2] : null;
+}
 
-  const [searchedConfig, setSearchedConfig] = useQueryStates(queryStateMap);
+/**
+ * Tags the page's ClickHouse queries with the saved search they belong to.
+ * A wrapper so the page component's own JSX stays where it is.
+ */
+export function DBSearchPage() {
+  return (
+    <QueryAttributionProvider
+      attribution={{
+        surface: 'search',
+        search: getSavedSearchIdFromPath() ?? undefined,
+      }}
+    >
+      <DBSearchPageContent />
+    </QueryAttributionProvider>
+  );
+}
+
+function DBSearchPageContent() {
+  // Read again here, not passed down: this component re-renders from its own
+  // query-state hooks without the wrapper, and must see the current path.
+  const savedSearchId = getSavedSearchIdFromPath();
+  const defaultTimeRange = useDefaultTimeRange('Past 15m');
+
+  const [rawSearchedConfig, setSearchedConfig] = useQueryStates(queryStateMap);
+
+  // `?source=` accepts a source name as well as a source ID. Resolve it to an ID
+  // here. The param is not changed until the user changes the source in the UI.
+  const { source: searchedSource } = useResolvedSourceParam(
+    rawSearchedConfig.source,
+    {
+      kinds: [SourceKind.Log, SourceKind.Trace],
+    },
+  );
+
+  const searchedConfig = useMemo(
+    () => ({ ...rawSearchedConfig, source: searchedSource?.id }),
+    [rawSearchedConfig, searchedSource?.id],
+  );
   const [directTraceId, setDirectTraceId] = useQueryState(
     'traceId',
     parseAsStringEncoded,
@@ -979,16 +1066,15 @@ export function DBSearchPage() {
       enabled: savedSearchId != null,
     },
   );
+  const title = usePageTitle(
+    savedSearch ? `${savedSearch.name} Search` : 'Search',
+  );
 
   const { data: sources } = useSources();
   const [lastSelectedSourceId, setLastSelectedSourceId] = useLocalStorage(
     'hdx-last-selected-source-id',
     '',
   );
-  const { data: searchedSource } = useSource({
-    id: searchedConfig.source,
-    kinds: [SourceKind.Log, SourceKind.Trace],
-  });
   const directTraceSource =
     directTraceId != null && searchedSource?.kind === SourceKind.Trace
       ? searchedSource
@@ -1050,16 +1136,20 @@ export function DBSearchPage() {
     [sources, lastSelectedSourceId],
   );
 
-  const { control, setValue, reset, handleSubmit, formState } =
+  const { control, setValue, getValues, reset, handleSubmit, formState } =
     useForm<SearchConfigFromSchema>({
       values: {
         select: searchedConfig.select || '',
         where: searchedConfig.where || '',
         whereLanguage:
           searchedConfig.whereLanguage ?? getStoredLanguage() ?? 'lucene',
+        // When source is provided in the URL or in the saved search, don't
+        // fallback to the default source.
         source:
           searchedConfig.source ||
-          (savedSearchId || directTraceId ? '' : defaultSourceId),
+          (savedSearchId || directTraceId || rawSearchedConfig.source
+            ? ''
+            : defaultSourceId),
         filters: searchedConfig.filters ?? [],
         orderBy: searchedConfig.orderBy ?? '',
       },
@@ -1138,8 +1228,14 @@ export function DBSearchPage() {
   // been wiped (ex. clicking on the same saved search again)
   useEffect(() => {
     const { source, where, select, whereLanguage, filters } = searchedConfig;
+    // Source is "empty" when it's not present in the URL, not when it cannot be resolved
+    // to an existing source.
     const isSearchConfigEmpty =
-      !source && !where && !select && !whereLanguage && !filters?.length;
+      !rawSearchedConfig.source &&
+      !where &&
+      !select &&
+      !whereLanguage &&
+      !filters?.length;
 
     // Landed on saved search (if we just landed on a searchId route)
     if (
@@ -1177,6 +1273,7 @@ export function DBSearchPage() {
   }, [
     savedSearch,
     searchedConfig,
+    rawSearchedConfig.source,
     setSearchedConfig,
     savedSearchId,
     defaultSourceId,
@@ -1187,6 +1284,14 @@ export function DBSearchPage() {
   const [_queryErrors, setQueryErrors] = useState<{
     [key: string]: Error | ClickHouseQueryError;
   }>({});
+
+  const completeOnboardingTask = useCompleteOnboardingTask();
+  const { data: me } = api.useMe();
+  // A non-persistable user counts as "already explored" so the POST never fires
+  // (see isPersistableUserId).
+  const hasExploredData =
+    !isPersistableUserId(me?.id) ||
+    (me?.onboardingData?.completedTasks.includes('advancedQuery') ?? false);
 
   useEffect(() => {
     if (!isBrowser || !IS_LOCAL_MODE) return;
@@ -1202,34 +1307,56 @@ export function DBSearchPage() {
     };
   }, []);
 
-  const onSubmit = useCallback(() => {
-    onSearch(displayedTimeInputValue);
-    handleSubmit(
-      ({ select, where, whereLanguage, source, filters, orderBy }) => {
-        setSearchedConfig({
-          select,
-          where,
-          whereLanguage,
-          source,
-          filters,
-          orderBy,
-        });
-      },
-    )();
-    setPatternColumn(draftPatternColumn || null);
-    // clear query errors
-    setQueryErrors({});
-  }, [
-    handleSubmit,
-    setSearchedConfig,
-    displayedTimeInputValue,
-    onSearch,
-    setQueryErrors,
-    draftPatternColumn,
-    setPatternColumn,
-  ]);
+  // recordExploration is false for the programmatic catch-up submit (loading a
+  // source / saved search), true for a genuine user search — so only the latter
+  // completes "Explore your data". An explicit arg, not a shared ref, so
+  // concurrent submits can't consume each other's suppression.
+  const onSubmit = useCallback(
+    ({ recordExploration = true }: { recordExploration?: boolean } = {}) => {
+      onSearch(displayedTimeInputValue);
+      handleSubmit(
+        ({ select, where, whereLanguage, source, filters, orderBy }) => {
+          setSearchedConfig({
+            select,
+            where,
+            whereLanguage,
+            source,
+            filters,
+            orderBy,
+          });
+          if (
+            recordExploration &&
+            !IS_LOCAL_MODE &&
+            !hasExploredData &&
+            isNonTrivialSearch(where, filters)
+          ) {
+            completeOnboardingTask.mutate('advancedQuery');
+          }
+        },
+      )();
+      setPatternColumn(draftPatternColumn || null);
+      setQueryErrors({});
+    },
+    [
+      handleSubmit,
+      setSearchedConfig,
+      displayedTimeInputValue,
+      onSearch,
+      setQueryErrors,
+      draftPatternColumn,
+      setPatternColumn,
+      completeOnboardingTask,
+      hasExploredData,
+    ],
+  );
 
+  // One debouncer so a catch-up and filter-apply in the same window collapse
+  // into one run; useDebouncedCallback keeps the last call's args.
   const debouncedSubmit = useDebouncedCallback(onSubmit, 1000);
+  const debouncedCatchUpSubmit = useCallback(
+    () => debouncedSubmit({ recordExploration: false }),
+    [debouncedSubmit],
+  );
   const handleSetFilters = useCallback(
     (filters: Filter[]) => {
       setValue('filters', filters);
@@ -1296,6 +1423,23 @@ export function DBSearchPage() {
     // If the user changes the source dropdown, reset the select and orderby fields
     // to match the new source selected
     if (watchedSource !== prevSourceRef.current) {
+      // Whether the form is only catching up to the source the search config
+      // already points at — a source name resolving to its ID, a saved search's
+      // own source arriving, or history navigation — rather than the user
+      // picking a different source. Either way the URL's other params were
+      // chosen deliberately and must not be rewritten.
+      const isCatchingUpToConfig =
+        !!watchedSource && watchedSource === searchedSource?.id;
+
+      if (isCatchingUpToConfig && savedSearchId == null) {
+        prevSourceRef.current = watchedSource;
+        if (rawSearchedConfig.source !== watchedSource) {
+          // Partial update — the other search params are left as they are.
+          setSearchedConfig({ source: watchedSource });
+        }
+        return;
+      }
+
       prevSourceRef.current = watchedSource;
       const newInputSourceObj = inputSourceObjs?.find(
         s => s.id === watchedSource,
@@ -1304,23 +1448,30 @@ export function DBSearchPage() {
         // Save the selected source ID to localStorage
         setLastSelectedSourceId(newInputSourceObj.id);
 
-        // If the user isn't in a saved search (or the source is different from the saved search source), reset fields
-        if (savedSearchId == null || savedSearch?.source !== watchedSource) {
-          setValue('select', '');
-          setValue('orderBy', '');
-          // Defer filter clearing: wait until the new source's columns load,
-          // then keep filters whose root column exists on the new schema.
-          pendingFilterReconcileRef.current = watchedSource ?? null;
-          // If the user is in a saved search, prefer the saved search's select/orderBy if available
-        } else {
-          setValue('select', savedSearch?.select ?? '');
-          setValue('orderBy', savedSearch?.orderBy ?? '');
-          // Don't clear filters - we're loading from saved search
+        // Only a real user-initiated source change may reset the query fields. On a saved
+        // search route the form also catches up to the source the URL points at
+        // (the saved-search effect writes it), and resetting there would discard
+        // select/orderBy the link carried — e.g. an unsaved tweak that was
+        // bookmarked or refreshed. The submit below still runs, since that is how
+        // a freshly loaded page pushes its defaults into the search config.
+        if (!isCatchingUpToConfig) {
+          // If the user isn't in a saved search (or the source is different from the saved search source), reset fields
+          if (savedSearchId == null || savedSearch?.source !== watchedSource) {
+            setValue('select', '');
+            setValue('orderBy', '');
+            // Defer filter clearing: wait until the new source's columns load,
+            // then keep filters whose root column exists on the new schema.
+            pendingFilterReconcileRef.current = watchedSource ?? null;
+            // If the user is in a saved search, prefer the saved search's select/orderBy if available
+          } else {
+            setValue('select', savedSearch?.select ?? '');
+            setValue('orderBy', savedSearch?.orderBy ?? '');
+            // Don't clear filters - we're loading from saved search
+          }
         }
-        // Push the new source to URL/searchedConfig so the chart re-queries.
-        // Debounced so a later filter reconcile (which also submits) collapses
-        // into a single run.
-        debouncedSubmit();
+        // Programmatic catch-up (loading a source / saved search), so use the
+        // variant that does NOT credit "Explore your data".
+        debouncedCatchUpSubmit();
       }
     }
   }, [
@@ -1330,7 +1481,10 @@ export function DBSearchPage() {
     savedSearchId,
     inputSourceObjs,
     setLastSelectedSourceId,
-    debouncedSubmit,
+    debouncedCatchUpSubmit,
+    searchedSource?.id,
+    rawSearchedConfig.source,
+    setSearchedConfig,
   ]);
 
   const retainCompatibleFilters = useStableCallback((columns: ColumnMeta[]) => {
@@ -1525,6 +1679,19 @@ export function DBSearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [updateRelativeTimeInputValue, searchedConfig.source, isReady]);
 
+  // Row selection is scoped to one result set, so anything that re-queries
+  // or changes the result set should reset the selection.
+  const selectionResetKey = useMemo(
+    () =>
+      JSON.stringify([
+        searchedConfig,
+        searchedTimeRange[0].getTime(),
+        searchedTimeRange[1].getTime(),
+        denoiseResults,
+      ]),
+    [searchedConfig, searchedTimeRange, denoiseResults],
+  );
+
   useLiveUpdate({
     isLive,
     interval,
@@ -1539,6 +1706,18 @@ export function DBSearchPage() {
   useEffect(() => {
     setShouldShowLiveModeHint(isLive === false);
   }, [isLive]);
+
+  // Selected rows belong to one result set, so a live refresh would churn the
+  // table under them. Same treatment as expanding a row: leave live tail, which
+  // surfaces the Resume Live Tail button so the exit is visible and undoable.
+  const onSelectedRowsChange = useCallback(
+    (hasSelectedRows: boolean) => {
+      if (hasSelectedRows && isLive) {
+        setIsLive(false);
+      }
+    },
+    [isLive, setIsLive],
+  );
 
   // Callback to handle when rows are expanded - kick user out of live tail
   const onExpandedRowsChange = useCallback(
@@ -1590,13 +1769,38 @@ export function DBSearchPage() {
 
   const toggleColumn = useCallback(
     (column: string) => {
-      const newSelectArray = displayedColumns.includes(column)
-        ? displayedColumns.filter(s => s !== column)
-        : [...displayedColumns, column];
+      // A column added from the UI can carry an alias, so match the expression too
+      const selected = displayedColumns.find(
+        s => s === column || selectItemExpression(s) === column,
+      );
+      const newSelectArray = selected
+        ? displayedColumns.filter(s => s !== selected)
+        : [
+            ...displayedColumns,
+            withMapKeyAlias(column, displayedColumns, knownColumns),
+          ];
       setValue('select', newSelectArray.join(', '));
+      if (selected) {
+        const orderBy = getValues('orderBy') ?? '';
+        const nextOrderBy = orderByAfterRemovingSelectItem(
+          selected,
+          orderBy,
+          defaultSearchConfig.orderBy ?? '',
+        );
+        if (nextOrderBy !== orderBy) {
+          setValue('orderBy', nextOrderBy);
+        }
+      }
       onSubmit();
     },
-    [displayedColumns, setValue, onSubmit],
+    [
+      displayedColumns,
+      knownColumns,
+      setValue,
+      getValues,
+      defaultSearchConfig.orderBy,
+      onSubmit,
+    ],
   );
 
   const generateSearchUrl = useCallback(
@@ -2013,9 +2217,7 @@ export function DBSearchPage() {
       data-testid="search-page"
     >
       <Head>
-        <title>
-          {savedSearch ? `${savedSearch.name} Search` : 'Search'} - {brandName}
-        </title>
+        <title>{title}</title>
       </Head>
       {!IS_LOCAL_MODE && isAlertModalOpen && (
         <DBSearchPageAlertModal
@@ -2027,7 +2229,7 @@ export function DBSearchPage() {
       )}
       <OnboardingModal />
       {savedSearch && (
-        <Stack mt="lg" mx="xs">
+        <Stack mt="xs" mx="xs" gap="xs">
           <Group justify="space-between">
             <Breadcrumbs fz="sm">
               <Anchor component={Link} href="/search/list" fz="sm" c="dimmed">
@@ -2037,7 +2239,7 @@ export function DBSearchPage() {
                 {savedSearch.name}
               </Text>
             </Breadcrumbs>
-            <Text size="xs" c="dimmed" lh={1}>
+            <Text size="xs" c="dimmed">
               {savedSearch.createdBy && (
                 <span>
                   Created by{' '}
@@ -2064,18 +2266,33 @@ export function DBSearchPage() {
             </Text>
           </Group>
           <Group justify="space-between" align="flex-end">
-            <div data-testid="saved-search-name">
-              <EditablePageName
-                key={savedSearch.id}
-                name={savedSearch?.name ?? 'Untitled Search'}
-                onSave={editedName => {
-                  updateSavedSearch.mutate({
+            <InlineNameInput
+              key={savedSearch.id}
+              value={savedSearch.name ?? ''}
+              placeholder="Untitled search"
+              aria-label="Saved search name"
+              size="md"
+              headingLevel={3}
+              data-testid="saved-search-name"
+              onCommit={editedName =>
+                updateSavedSearch
+                  .mutateAsync({
                     id: savedSearch.id,
                     name: editedName,
-                  });
-                }}
-              />
-            </div>
+                  })
+                  .catch(error => {
+                    notifications.show({
+                      color: 'red',
+                      title: 'Unable to save search',
+                      message:
+                        error instanceof Error
+                          ? error.message.slice(0, 100)
+                          : 'An error occurred while renaming your saved search.',
+                    });
+                    throw error;
+                  })
+              }
+            />
 
             <Group gap="xs">
               <FavoriteButton
@@ -2097,6 +2314,14 @@ export function DBSearchPage() {
                   {savedSearch.tags?.length || 0}
                 </Button>
               </Tags>
+
+              <ResourceTerraformPopover
+                resource={{
+                  type: 'saved_search',
+                  id: savedSearch.id,
+                  name: savedSearch.name,
+                }}
+              />
 
               <SearchPageActionBar
                 onClickDeleteSavedSearch={() => {
@@ -2239,7 +2464,7 @@ export function DBSearchPage() {
           <Flex
             gap="sm"
             style={{ flex: '0 1 500px', minWidth: 0 }}
-            align="center"
+            align="flex-start"
           >
             <TimePicker
               data-testid="time-picker"
@@ -2649,6 +2874,9 @@ export function DBSearchPage() {
                             onSortingChange={onSortingChange}
                             initialSortBy={initialSortBy}
                             enableSmallFirstWindow
+                            enableRowSelection
+                            selectionResetKey={selectionResetKey}
+                            onSelectedRowsChange={onSelectedRowsChange}
                             onResolvedColumnsChange={onResolvedColumnsChange}
                           />
                         )}
@@ -2666,7 +2894,7 @@ export function DBSearchPage() {
 
 const DBSearchPageDynamic = dynamic(async () => DBSearchPage, { ssr: false });
 
-// @ts-ignore
+// @ts-expect-error next/dynamic component type does not include the getLayout static
 DBSearchPageDynamic.getLayout = withAppNav;
 
 export default DBSearchPageDynamic;
