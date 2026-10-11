@@ -80,6 +80,12 @@ const MAX_LEGEND_ITEMS = 4;
 // getVisibleTooltipRows). Exported so the pinned tooltip shares the cap.
 export const MAX_TOOLTIP_ROWS = 20;
 
+// The hover tooltip shows only the largest series; clicking pins the full list.
+const MAX_HOVER_TOOLTIP_ROWS = 5;
+
+// Synced charts still draw the cursor line but no tooltip box.
+const renderNoTooltip = () => null;
+
 // Vertical pixel distance within which a series' line counts as "near" the
 // cursor for tooltip highlighting. Beyond this, no row is emphasized so the
 // tooltip is not misleading when the pointer is in empty space.
@@ -242,7 +248,7 @@ const HDXLineChartTooltip = withErrorBoundary(
         getVisibleTooltipRows(
           sortedPayload,
           nearestSeriesKey,
-          MAX_TOOLTIP_ROWS,
+          MAX_HOVER_TOOLTIP_ROWS,
         );
 
       return (
@@ -2080,7 +2086,7 @@ export const MemoChart = memo(function MemoChart({
               docblock) and escape the chart's bounds near an edge. */}
           {isClickActive == null && (
             <Tooltip
-              content={hoverTooltipContent}
+              content={isHovered ? hoverTooltipContent : renderNoTooltip}
               portal={typeof document !== 'undefined' ? document.body : null}
             />
           )}
