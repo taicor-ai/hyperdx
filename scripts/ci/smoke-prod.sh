@@ -28,7 +28,7 @@ status="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/me"
 
 # Check both copies after Yarn production focus and Next standalone tracing.
 dependencies="$(node -p 'JSON.stringify(Object.keys(require("./packages/common-utils/package.json").dependencies))')"
-docker exec -i -e COMMON_RUNTIME_DEPENDENCIES="$dependencies" "$name" node <<'JS' 
+docker exec -i -e COMMON_RUNTIME_DEPENDENCIES="$dependencies" "$name" node <<'JS'
 const assert = require('node:assert/strict');
 const { createRequire } = require('node:module');
 for (const root of ['/app/packages/api/build/index.js', '/app/packages/app/packages/app/server.js']) {

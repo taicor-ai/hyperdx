@@ -173,7 +173,7 @@ const nextConfig = {
   ...(process.env.NEXT_OUTPUT_STANDALONE === 'true'
     ? {
         output: 'standalone',
-        // esbuild compiles build-time dependencies; the standalone server never runs it.
+        // Next traces esbuild through its dev bundler and terser; standalone uses dev=false.
         outputFileTracingExcludes: {
           'next-server': ['**/node_modules/{esbuild,@esbuild}/**/*'],
           '/*': [
