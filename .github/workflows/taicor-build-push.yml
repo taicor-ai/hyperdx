@@ -99,7 +99,6 @@ jobs:
             ${{ runner.temp }}/image-id.txt
             ${{ runner.temp }}/vulnerabilities.json
             ${{ runner.temp }}/secret-summary.txt
-          retention-days: 7
 
       - name: Publish immutable deployment reference
         if: github.event_name != 'pull_request'
