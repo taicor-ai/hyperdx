@@ -127,7 +127,7 @@ function formatExternalWebhook(
  *         url:
  *           type: string
  *           description: Slack incoming webhook URL
- *           example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+ *           example: https://hooks.slack.com/services/...
  *         description:
  *           type: string
  *           description: Webhook description, shown in the UI
@@ -398,7 +398,7 @@ router.get(
  *           format: uri
  *           maxLength: 2048
  *           description: Webhook destination URL.
- *           example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+ *           example: https://hooks.slack.com/services/...
  *         description:
  *           type: string
  *           maxLength: 2048

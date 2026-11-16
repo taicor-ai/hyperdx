@@ -88,7 +88,7 @@ jobs:
           docker image inspect --format '{{.Id}}' "$image" > "$RUNNER_TEMP/image-id.txt"
           # The tested Zod backport remains visible to version-based scanners.
           "$RUNNER_TEMP/trivy" image --scanners vuln --format json --output "$RUNNER_TEMP/vulnerabilities.json" "$image"
-          "$RUNNER_TEMP/trivy" image --scanners secret --exit-code 1 --format template --template '{{range .}}{{range .Secrets}}{{.RuleID}} {{.Severity}}{{"\n"}}{{end}}{{end}}' "$image" > "$RUNNER_TEMP/secret-summary.txt"
+          "$RUNNER_TEMP/trivy" image --scanners secret --exit-code 1 --format template --template '{{range .}}{{if .Secrets}}{{.Target}}{{"\n"}}{{range .Secrets}}{{.RuleID}} {{.Severity}}{{"\n"}}{{end}}{{end}}{{end}}' "$image" > "$RUNNER_TEMP/secret-summary.txt"
 
       - name: Upload image scan evidence
         if: always()
