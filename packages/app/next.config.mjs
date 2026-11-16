@@ -175,6 +175,7 @@ const nextConfig = {
         output: 'standalone',
         // esbuild compiles build-time dependencies; the standalone server never runs it.
         outputFileTracingExcludes: {
+          'next-server': ['**/node_modules/{esbuild,@esbuild}/**/*'],
           '/*': [
             '../../node_modules/{esbuild,@esbuild}/**/*',
             './node_modules/{esbuild,@esbuild}/**/*',

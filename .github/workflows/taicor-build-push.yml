@@ -78,6 +78,7 @@ jobs:
           steps.image.outputs.tag }}"
 
       - name: Scan production image
+        if: always() && steps.build.outcome == 'success'
         shell: bash
         run: |
           curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz -o "$RUNNER_TEMP/trivy.tar.gz"

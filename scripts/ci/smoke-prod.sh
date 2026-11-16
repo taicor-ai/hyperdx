@@ -27,16 +27,22 @@ status="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/me"
 [ "$status" = 401 ] || { echo "::error::Unauthenticated API returned $status"; exit 1; }
 
 # Check both copies after Yarn production focus and Next standalone tracing.
-docker exec -i "$name" node <<'JS'
+dependencies="$(node -p 'JSON.stringify(Object.keys(require("./packages/common-utils/package.json").dependencies))')"
+docker exec -i -e COMMON_RUNTIME_DEPENDENCIES="$dependencies" "$name" node <<'JS' 
 const assert = require('node:assert/strict');
 const { createRequire } = require('node:module');
 for (const root of ['/app/packages/api/build/index.js', '/app/packages/app/packages/app/server.js']) {
   const requireFrom = createRequire(root);
+  for (const dependency of JSON.parse(process.env.COMMON_RUNTIME_DEPENDENCIES)) {
+    requireFrom.resolve(dependency);
+  }
   for (const entry of ['zod', 'zod/v4']) {
     const { z } = requireFrom(entry);
     assert.equal(z.array(z.string()).max(1).safeParse([null, null]).error.issues.length, 1);
   }
 }
 JS
-docker exec "$name" sh -c 'test ! -e /usr/local/include/node && test -z "$(find /app -path "*/@esbuild/*/bin/esbuild" -print -quit)"'
+docker exec "$name" sh -c 'test ! -e /usr/local/include/node' || { echo '::error::Node build headers remain in the image'; exit 1; }
+esbuild="$(docker exec "$name" find /app -path '*/@esbuild/*/bin/esbuild' -print -quit)"
+[ -z "$esbuild" ] || { echo "::error::Build-only esbuild remains at $esbuild"; exit 1; }
 echo 'Production image health, frontend, authentication, patched validation and runtime contents passed.'
