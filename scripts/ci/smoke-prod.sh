@@ -42,6 +42,62 @@ for (const root of ['/app/packages/api/build/index.js', '/app/packages/app/packa
   }
 }
 JS
+
+# Exercise the Jaeger security exception through each shipped SDK, with no exporters or network.
+for root in /app/packages/api/build/index.js /app/packages/app/packages/app/server.js; do
+  for mode in jaeger default; do
+    docker run --rm -i --network none --entrypoint node \
+      -e OTEL_TRACES_EXPORTER=none -e OTEL_METRICS_EXPORTER=none -e OTEL_LOGS_EXPORTER=none \
+      "$image" - "$root" "$mode" <<'JS'
+const assert = require('node:assert/strict');
+const { createRequire } = require('node:module');
+require('node:net').Socket.prototype.connect = () => { throw new Error('Unexpected network attempt'); };
+const [root, mode] = process.argv.slice(2);
+if (mode === 'jaeger') process.env.OTEL_PROPAGATORS = 'jaeger';
+else delete process.env.OTEL_PROPAGATORS;
+const app = createRequire(root);
+const hyperdx = createRequire(app.resolve('@hyperdx/node-opentelemetry'));
+const sdkRequire = createRequire(hyperdx.resolve('@opentelemetry/sdk-node'));
+const api = sdkRequire('@opentelemetry/api');
+const { NodeSDK } = hyperdx('@opentelemetry/sdk-node');
+const sdk = new NodeSDK({ autoDetectResources: false, instrumentations: [] });
+const traceId = '0123456789abcdef0123456789abcdef';
+const spanId = '0123456789abcdef';
+const validJaeger = `${traceId}:${spanId}:0:01`;
+const extract = carrier => api.propagation.extract(api.ROOT_CONTEXT, carrier);
+async function check() {
+  sdk.start();
+  if (mode === 'jaeger') {
+    const valid = extract({ 'uber-trace-id': validJaeger, 'uberctx-tenant': 'synthetic%20tenant' });
+    assert.equal(api.trace.getSpanContext(valid)?.traceId, traceId);
+    assert.equal(api.propagation.getBaggage(valid)?.getEntry('tenant')?.value, 'synthetic tenant');
+    const carrier = {};
+    api.propagation.inject(valid, carrier);
+    assert.equal(carrier['uber-trace-id'], validJaeger);
+    assert.equal(carrier['uberctx-tenant'], 'synthetic%20tenant');
+    const invalidTrace = extract({ 'uber-trace-id': '%', 'uberctx-tenant': 'synthetic' });
+    assert.equal(api.trace.getSpanContext(invalidTrace), undefined);
+    assert.equal(api.propagation.getBaggage(invalidTrace)?.getEntry('tenant')?.value, 'synthetic');
+    for (const trace of [validJaeger, '%']) {
+      const invalidBaggage = extract({ 'uber-trace-id': trace, 'uberctx-tenant': '%' });
+      assert.equal(api.trace.getSpanContext(invalidBaggage)?.traceId, trace === '%' ? undefined : traceId);
+      assert.equal(api.propagation.getBaggage(invalidBaggage)?.getEntry('tenant'), undefined);
+    }
+  } else {
+    const valid = extract({ traceparent: `00-${traceId}-${spanId}-01`, baggage: 'tenant=synthetic',
+      'uber-trace-id': '%', 'uberctx-other': '%' });
+    assert.equal(api.trace.getSpanContext(valid)?.traceId, traceId);
+    assert.equal(api.propagation.getBaggage(valid)?.getEntry('tenant')?.value, 'synthetic');
+    assert.equal(api.propagation.getBaggage(valid)?.getEntry('other'), undefined);
+    assert.deepEqual(api.propagation.fields().sort(), ['baggage', 'traceparent', 'tracestate']);
+  }
+  await sdk.shutdown();
+  console.log(`Production SDK propagation passed: ${root}, ${mode}`);
+}
+check().catch(error => { console.error(error); process.exitCode = 1; });
+JS
+  done
+done
 docker exec "$name" sh -c 'test ! -e /usr/local/include/node' || { echo '::error::Node build headers remain in the image'; exit 1; }
 build_content="$(docker exec "$name" find /app \( \
   -path '*/next/dist/server/lib/router-utils/setup-dev-bundler.js' -o \
