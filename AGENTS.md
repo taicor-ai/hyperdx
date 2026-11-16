@@ -339,8 +339,7 @@ context, PR comments — is what this job deliberately does without.
 
 ## Responding to review feedback
 
-Two bots review every PR (Claude Code Review inline + summary, Deep Review
-summary). No finding blocks merge automatically; a maintainer decides what
+The Taicor derivative uses Greptile for PR review. A maintainer decides what
 lands. Severity tells you what they will expect.
 
 1. **Triage before you touch code.** Two questions per comment: did this PR
@@ -364,23 +363,6 @@ lands. Severity tells you what they will expect.
    scope instead of addressing more automated comments. A PR that keeps
    growing to satisfy a bot is drifting from its purpose.
 5. A finding you disagree with is not a defect. Say so and move on.
-
-## GitHub Action Workflow (when invoked via @claude)
-
-When working on issues or PRs through the GitHub Action:
-
-1. **Before writing any code**, post a comment outlining your implementation
-   plan — which files you'll change, what approach you'll take, and any
-   trade-offs or risks. Use `gh issue comment` for issues or `gh pr comment` for
-   PRs.
-
-2. **After making any code changes**, always run these in order and fix any
-   failures before opening a PR:
-
-   - `make ci-lint` — lint + TypeScript type check
-   - `make ci-unit` — unit tests
-
-3. Write a clear PR description explaining what changed and why.
 
 ## Git Commits
 

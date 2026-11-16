@@ -448,7 +448,7 @@ jobs:
         # Pinned, not floating: this runs on the release path. The `stable`
         # dist-tag is where to look when bumping.
         #
-        # --setting-sources user matches deep-resolve.yml: without it, a
+        # --setting-sources user keeps repository instructions out: without it, a
         # `.claude/settings.json` on the checked-out branch could widen the
         # allowlist or register hooks.
         #
