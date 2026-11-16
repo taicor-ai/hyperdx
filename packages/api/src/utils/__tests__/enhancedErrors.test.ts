@@ -2,6 +2,7 @@ import express, { Express } from 'express';
 import request from 'supertest';
 import { z } from 'zod';
 
+import { createDashboardBodySchema } from '@/routers/external-api/v2/utils/dashboards';
 import { validateRequestWithEnhancedErrors as validateRequest } from '@/utils/enhancedErrors';
 import {
   alertSchema,
@@ -20,6 +21,23 @@ describe('enhancedErrors', () => {
   });
 
   describe('validateRequestWithEnhancedErrors', () => {
+    it('rejects oversized dashboard tile lists before validating their elements', async () => {
+      app.post(
+        '/dashboards',
+        validateRequest({ body: createDashboardBodySchema }),
+        (_, res) => res.json({ success: true }),
+      );
+
+      const response = await request(app)
+        .post('/dashboards')
+        .send({ name: 'Oversized dashboard', tiles: Array(1000).fill(null) });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(
+        'Body validation failed: tiles: Array must contain at most 500 element(s)',
+      );
+    });
+
     it('should report validation errors for dashboard with invalid chart', async () => {
       app.post(
         '/dashboards',

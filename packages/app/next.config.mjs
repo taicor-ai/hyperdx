@@ -173,6 +173,13 @@ const nextConfig = {
   ...(process.env.NEXT_OUTPUT_STANDALONE === 'true'
     ? {
         output: 'standalone',
+        // esbuild compiles build-time dependencies; the standalone server never runs it.
+        outputFileTracingExcludes: {
+          '/*': [
+            '../../node_modules/{esbuild,@esbuild}/**/*',
+            './node_modules/{esbuild,@esbuild}/**/*',
+          ],
+        },
       }
     : {}),
   ...(process.env.NEXT_PUBLIC_CLICKHOUSE_BUILD

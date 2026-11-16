@@ -99,7 +99,7 @@ function assertFreshAuthTime(value: unknown): void {
   }
 }
 
-export async function ensureOidcUser(identity: {
+async function ensureOidcUser(identity: {
   email: string;
   name: string;
 }): Promise<UserDocument> {

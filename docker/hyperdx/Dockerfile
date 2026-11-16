@@ -7,7 +7,7 @@
 # - Mongo
 # - Otel Collector (otelcol)
 
-ARG NODE_VERSION=22.22
+ARG NODE_VERSION=22.23.4
 ARG CLICKHOUSE_VERSION=26.8
 ARG OTEL_COLLECTOR_VERSION=0.155.0
 ARG OTEL_COLLECTOR_CORE_VERSION=1.61.0
@@ -118,18 +118,14 @@ ENV CODE_VERSION=$CODE_VERSION
 ENV OTEL_RESOURCE_ATTRIBUTES="service.version=$CODE_VERSION"
 ENV NODE_ENV=production
 
-# The moving Node Alpine base can lag security rebuilds. Fail the immutable
-# production build unless the runtime TLS packages include OpenSSL's 3.5.8
-# fixes published on 2026-08-25.
-RUN apk add --no-cache --upgrade \
-    'openssl>=3.5.8-r0' \
-    'libcrypto3>=3.5.8-r0' \
-    'libssl3>=3.5.8-r0'
+# Refresh security updates for every installed Alpine runtime package.
+RUN apk upgrade --no-cache
 
 # Remove package managers from production image (not needed at runtime)
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
     /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
-    /usr/local/bin/yarn /usr/local/bin/yarnpkg
+    /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    /usr/local/include/node /opt/yarn*
 
 USER node
 
@@ -139,7 +135,6 @@ COPY --chown=node:node --from=builder /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/packages/api/build ./packages/api/build
 COPY --chown=node:node --from=builder /app/packages/api/bin ./packages/api/bin
 COPY --chown=node:node --from=builder /app/packages/common-utils/dist ./packages/common-utils/dist
-COPY --chown=node:node --from=node_base /app/packages/common-utils/node_modules ./packages/common-utils/node_modules
 COPY --chown=node:node --from=builder /app/packages/app/.next/standalone ./packages/app
 COPY --chown=node:node --from=builder /app/packages/app/.next/static ./packages/app/packages/app/.next/static
 COPY --chown=node:node --from=builder /app/packages/app/public ./packages/app/packages/app/public

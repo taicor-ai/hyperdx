@@ -1,9 +1,9 @@
 name: Main
 on:
   push:
-    branches: [main, v1]
+    branches: [main, v1, taicor/clickstack-2.32.0]
   pull_request:
-    branches: [main, v1]
+    branches: [main, v1, taicor/clickstack-2.32.0]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -121,7 +121,7 @@ jobs:
       - name: Spin up docker services
         run: |
           docker buildx create --use --driver=docker-container
-          docker buildx bake -f ./docker-compose.ci.yml --set *.cache-to="type=gha,mode=max,scope=ci-integration" --set *.cache-from="type=gha,scope=ci-integration" --load
+          docker buildx bake -f ./docker-compose.ci.yml --set "*.cache-to=type=gha,mode=max,scope=ci-integration" --set "*.cache-from=type=gha,scope=ci-integration" --load
       - name: Build dependencies
         run: make ci-build
       # Integration tests boot a MockServer on fixed ports and share a single
