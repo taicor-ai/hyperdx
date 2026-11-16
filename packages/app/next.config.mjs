@@ -173,12 +173,10 @@ const nextConfig = {
   ...(process.env.NEXT_OUTPUT_STANDALONE === 'true'
     ? {
         output: 'standalone',
-        // Next traces esbuild through its dev bundler and terser; standalone uses dev=false.
+        // Standalone runs with dev=false; omit the unreachable development bundler.
         outputFileTracingExcludes: {
-          'next-server': ['**/node_modules/{esbuild,@esbuild}/**/*'],
-          '/*': [
-            '../../node_modules/{esbuild,@esbuild}/**/*',
-            './node_modules/{esbuild,@esbuild}/**/*',
+          'next-server': [
+            '**/next/dist/server/lib/router-utils/setup-dev-bundler.js',
           ],
         },
       }

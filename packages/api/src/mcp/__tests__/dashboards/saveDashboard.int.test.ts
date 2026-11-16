@@ -3678,7 +3678,10 @@ describe('MCP Dashboard Tools - clickstack_save_dashboard', () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(getFirstText(result)).toContain('only valid for gauge metrics');
+      expect(getFirstText(result)).toContain('Invalid input at tiles[0]');
+      expect(
+        await Dashboard.exists({ name: 'Sum delta dashboard' }),
+      ).toBeNull();
     });
   });
 });

@@ -43,6 +43,9 @@ for (const root of ['/app/packages/api/build/index.js', '/app/packages/app/packa
 }
 JS
 docker exec "$name" sh -c 'test ! -e /usr/local/include/node' || { echo '::error::Node build headers remain in the image'; exit 1; }
-esbuild="$(docker exec "$name" find /app -path '*/@esbuild/*/bin/esbuild' -print -quit)"
-[ -z "$esbuild" ] || { echo "::error::Build-only esbuild remains at $esbuild"; exit 1; }
+build_content="$(docker exec "$name" find /app \( \
+  -path '*/next/dist/server/lib/router-utils/setup-dev-bundler.js' -o \
+  -path '*/@esbuild/*/bin/esbuild' -o \
+  -path '*/serialize-javascript/package.json' \) -print -quit)"
+[ -z "$build_content" ] || { echo "::error::Build-only content remains at $build_content"; exit 1; }
 echo 'Production image health, frontend, authentication, patched validation and runtime contents passed.'
