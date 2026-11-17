@@ -1,6 +1,6 @@
 import mongoose, { Schema } from 'mongoose';
 
-export interface IOidcTransaction {
+interface IOidcTransaction {
   state: string;
   sessionId: string;
   codeVerifier: string;

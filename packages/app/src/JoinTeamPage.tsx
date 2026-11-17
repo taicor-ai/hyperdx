@@ -10,8 +10,8 @@ import {
   TextInput,
 } from '@mantine/core';
 
-import { IS_OIDC_ENABLED } from './config';
 import { usePageTitle } from './theme/ThemeProvider';
+import { IS_OIDC_ENABLED } from './config';
 import { PasswordCheck } from './PasswordCheck';
 
 export default function JoinTeam() {

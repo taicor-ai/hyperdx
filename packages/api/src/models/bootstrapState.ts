@@ -1,6 +1,6 @@
 import mongoose, { Schema } from 'mongoose';
 
-export interface IBootstrapState {
+interface IBootstrapState {
   _id: string;
   owner: string;
   status: 'initializing' | 'ready';

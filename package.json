@@ -86,9 +86,13 @@
     "on-headers": "^1.1.0",
     "fast-xml-parser": "^4.5.6",
     "systeminformation": "^5.24.0",
-    "@asyncapi/specs": "6.11.1"
+    "@asyncapi/specs": "6.11.1",
+    "@opentelemetry/propagator-jaeger": "^2.12.0",
+    "zod@npm:3.25": "patch:zod@npm%3A3.25.76#~/.yarn/patches/zod-npm-3.25.76-7de26333f8.patch"
   },
   "resolutionsNotes": {
-    "@stryker-mutator/core/minimatch": "Dev tooling, not a CVE override. Added when a blanket `brace-expansion` pin forced v2 (CJS) while minimatch v10 needs v5's named exports. That blanket pin is gone — it broke `nx affected` the same way — so brace-expansion now resolves per consumer and Stryker would most likely work on minimatch v10. The pin stays because no CI job runs `yarn dev:mutation`, so nothing would catch it if that guess is wrong. Drop it once someone has run the mutation suite on v10. See CONTRIBUTING.md#mutation-tests."
+    "@opentelemetry/propagator-jaeger": "Security exception for GHSA-45rx-2jwx-cxfr: sdk-node 0.218.0 pins Jaeger 2.7.1 exactly. This patched 2.x override keeps the public TextMapPropagator interface and its matching core dependency; it is not a parent-supported version selection. Remove when sdk-node selects Jaeger >=2.9.0.",
+    "@stryker-mutator/core/minimatch": "Dev tooling, not a CVE override. Added when a blanket `brace-expansion` pin forced v2 (CJS) while minimatch v10 needs v5's named exports. That blanket pin is gone — it broke `nx affected` the same way — so brace-expansion now resolves per consumer and Stryker would most likely work on minimatch v10. The pin stays because no CI job runs `yarn dev:mutation`, so nothing would catch it if that guess is wrong. Drop it once someone has run the mutation suite on v10. See CONTRIBUTING.md#mutation-tests.",
+    "zod@npm:3.25": "Backport upstream a0ebf97 (GHSA-mrhx-c7xc-m3w5) collection size guards to v3 and its bundled v4 compatibility API. Keep the version-based finding visible; remove when the application migrates to a patched upstream release."
   }
 }

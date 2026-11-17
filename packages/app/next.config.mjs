@@ -173,6 +173,12 @@ const nextConfig = {
   ...(process.env.NEXT_OUTPUT_STANDALONE === 'true'
     ? {
         output: 'standalone',
+        // Standalone runs with dev=false; omit the unreachable development bundler.
+        outputFileTracingExcludes: {
+          'next-server': [
+            '**/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+          ],
+        },
       }
     : {}),
   ...(process.env.NEXT_PUBLIC_CLICKHOUSE_BUILD

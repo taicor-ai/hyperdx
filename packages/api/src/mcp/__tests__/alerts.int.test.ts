@@ -750,7 +750,10 @@ describe('MCP Alert Tools', () => {
           }),
         );
         expect(rejected.isError).toBe(true);
-        expect(getFirstText(rejected)).toContain('displayType');
+        expect(getFirstText(rejected)).toContain(
+          'Invalid input at chartConfig',
+        );
+        expect(await Alert.countDocuments()).toBe(0);
 
         const result = await callTool(
           client,

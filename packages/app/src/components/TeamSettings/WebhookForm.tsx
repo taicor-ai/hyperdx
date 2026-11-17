@@ -339,7 +339,7 @@ export function WebhookForm({
           }
           placeholder={
             service === WebhookService.Slack
-              ? 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
+              ? 'https://hooks.slack.com/services/...'
               : service === WebhookService.IncidentIO
                 ? 'https://api.incident.io/v2/alert_events/http/ZZZZZZZZ?token=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
                 : 'https://example.com/webhook'
